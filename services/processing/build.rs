@@ -10,6 +10,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::path::PathBuf::from(std::env::var("OUT_DIR")?)
                 .join("processing_descriptor.bin"),
         )
+        // prost generates super::super::ingestion::v1::MarketEvent
+        // which resolves to crate::ingestion::v1 — declare that path here
+        .extern_path(".ingestion.v1", "crate::ingestion::v1")
         .compile_protos(
             &[
                 &format!("{}/processing/v1/engine.proto", proto_root),
