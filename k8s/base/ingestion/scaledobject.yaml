@@ -1,0 +1,20 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: ingestion-scaler
+  namespace: platform
+spec:
+  scaleTargetRef:
+    name: ingestion
+  minReplicaCount: 0
+  maxReplicaCount: 20
+  pollingInterval: 15
+  cooldownPeriod: 60
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: redpanda.platform.svc.cluster.local:9092
+        consumerGroup: ingestion-group
+        topic: raw-market-events
+        lagThreshold: "100"
+        offsetResetPolicy: latest

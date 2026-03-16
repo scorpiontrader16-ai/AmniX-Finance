@@ -1,0 +1,92 @@
+syntax = "proto3";
+
+package processing.v1;
+
+// FIX: go_package must point to processing gen directory, not ingestion
+option go_package = "github.com/your-org/platform/services/ingestion/gen/processing/v1;processingv1";
+
+import "google/protobuf/timestamp.proto";
+import "ingestion/v1/events.proto";
+
+service ProcessingEngine {
+  rpc ProcessEvent(ProcessEventRequest)
+      returns (ProcessEventResponse);
+
+  rpc ProcessStream(stream ProcessEventRequest)
+      returns (stream ProcessEventResponse);
+
+  rpc ComputeCorrelation(CorrelationRequest)
+      returns (CorrelationResponse);
+
+  rpc ExtractSignals(SignalRequest)
+      returns (SignalResponse);
+}
+
+message ProcessEventRequest {
+  ingestion.v1.MarketEvent event  = 1;
+  ProcessingConfig         config = 2;
+}
+
+message ProcessingConfig {
+  repeated string indicators       = 1;
+  int32           lookback_periods = 2;
+  bool            include_sentiment = 3;
+}
+
+message ProcessEventResponse {
+  string              event_id          = 1;
+  double              correlation_score = 2;
+  Signal              primary_signal    = 3;
+  map<string, double> indicators        = 4;
+  RiskMetrics         risk              = 5;
+  double              processing_us     = 6;
+  google.protobuf.Timestamp processed_at = 7;
+}
+
+message Signal {
+  enum Direction { UNKNOWN = 0; BULLISH = 1; BEARISH = 2; NEUTRAL = 3; }
+  Direction direction  = 1;
+  double    strength   = 2;
+  double    confidence = 3;
+  string    reason     = 4;
+}
+
+message RiskMetrics {
+  double volatility_24h = 1;
+  double max_drawdown   = 2;
+  double sharpe_ratio   = 3;
+  double var_95         = 4;
+}
+
+message CorrelationRequest {
+  string symbol_a           = 1;
+  string symbol_b           = 2;
+  int32  lookback_days      = 3;
+  string correlation_method = 4;
+}
+
+message CorrelationResponse {
+  string symbol_a        = 1;
+  string symbol_b        = 2;
+  double coefficient     = 3;
+  double p_value         = 4;
+  bool   is_significant  = 5;
+}
+
+message SignalRequest {
+  string          symbol               = 1;
+  repeated double prices               = 2;
+  repeated int64  times_ms             = 3;
+  repeated string requested_indicators = 4;
+}
+
+message SignalResponse {
+  map<string, double>    values  = 1;
+  repeated TradingSignal signals = 2;
+}
+
+message TradingSignal {
+  string type        = 1;
+  double value       = 2;
+  string description = 3;
+}

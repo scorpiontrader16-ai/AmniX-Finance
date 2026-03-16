@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package ingestion.v1;
+
+option go_package = "github.com/your-org/platform/services/ingestion/gen/ingestion/v1;ingestionv1";
+
+import "google/protobuf/timestamp.proto";
+
+message MarketEvent {
+  string  event_id = 1;
+  string  symbol   = 2;
+  string  source   = 3;
+
+  oneof data {
+    PriceData price = 4;
+    NewsData  news  = 5;
+    OrderBook book  = 6;
+  }
+
+  google.protobuf.Timestamp ingested_at = 7;
+  map<string, string>       metadata    = 8;
+}
+
+message PriceData {
+  double open         = 1;
+  double high         = 2;
+  double low          = 3;
+  double close        = 4;
+  double volume       = 5;
+  int64  timestamp_ms = 6;
+}
+
+message NewsData {
+  string   title        = 1;
+  string   content      = 2;
+  string   url          = 3;
+  string   source       = 4;
+  repeated string symbols = 5;
+  google.protobuf.Timestamp published_at = 6;
+}
+
+message OrderBook {
+  repeated OrderBookLevel bids = 1;
+  repeated OrderBookLevel asks = 2;
+  int64 timestamp_ms           = 3;
+}
+
+message OrderBookLevel {
+  double price    = 1;
+  double quantity = 2;
+}
+
+service IngestionService {
+  rpc IngestEvent(IngestEventRequest)  returns (IngestEventResponse);
+  rpc IngestBatch(IngestBatchRequest)  returns (IngestBatchResponse);
+  rpc HealthCheck(HealthCheckRequest)  returns (HealthCheckResponse);
+}
+
+message IngestEventRequest  { MarketEvent event = 1; }
+message IngestEventResponse { string event_id = 1; bool accepted = 2; }
+
+message IngestBatchRequest  { repeated MarketEvent events = 1; }
+message IngestBatchResponse {
+  int32           accepted_count = 1;
+  int32           rejected_count = 2;
+  repeated string rejected_ids   = 3;
+}
+
+message HealthCheckRequest {}
+message HealthCheckResponse {
+  enum Status { UNKNOWN = 0; SERVING = 1; NOT_SERVING = 2; }
+  Status status  = 1;
+  string message = 2;
+}
