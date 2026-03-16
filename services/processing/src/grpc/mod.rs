@@ -13,16 +13,9 @@ use tracing::{info, instrument, warn};
 use crate::engine::{CorrelationEngine, SignalEngine};
 
 // ── Generated proto modules ───────────────────────────────────────────────
-// Module structure MUST match prost's generated paths.
-// prost generates cross-package references as:
-//   super::super::ingestion::v1::MarketEvent
-// So ingestion::v1 must live at crate::grpc::ingestion::v1.
-pub mod ingestion {
-    pub mod v1 {
-        tonic::include_proto!("ingestion.v1");
-    }
-}
-
+// ingestion::v1 is declared at the crate root in main.rs
+// prost generates: super::super::ingestion::v1::MarketEvent
+// which resolves to crate::ingestion::v1 — matching extern_path in build.rs
 pub mod processing_v1 {
     tonic::include_proto!("processing.v1");
     /// File descriptor set for gRPC server reflection
@@ -30,7 +23,7 @@ pub mod processing_v1 {
         tonic::include_file_descriptor_set!("processing_descriptor");
 }
 
-use ingestion::v1::market_event::Data as EventData;
+use crate::ingestion::v1::market_event::Data as EventData;
 use processing_v1::{
     processing_engine_service_server::{
         ProcessingEngineService, ProcessingEngineServiceServer,
@@ -251,7 +244,7 @@ impl ProcessingEngineService for Engine {
 // ── Pure helpers ──────────────────────────────────────────────────────────
 
 fn analyze_event(
-    event: &ingestion::v1::MarketEvent,
+    event: &crate::ingestion::v1::MarketEvent,
 ) -> (Signal, HashMap<String, f64>) {
     let mut indicators = HashMap::new();
 
