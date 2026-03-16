@@ -38,7 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 async fn run_http_server(
     addr: SocketAddr,
-    shutdown: impl std::future::Future<Output = ()> + Send,
+    shutdown: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use axum::{routing::get, Router};
     let app = Router::new()
