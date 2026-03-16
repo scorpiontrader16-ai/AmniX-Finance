@@ -1,27 +1,35 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // CARGO_MANIFEST_DIR is set by cargo to the directory containing Cargo.toml
-    // This makes the path work both locally and in CI regardless of working directory
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")?;
-    let proto_root = format!("{}/../../proto", manifest_dir);
+    let proto_root   = format!("{}/../../proto", manifest_dir);
+    let out_dir      = std::env::var("OUT_DIR")?;
+
+    // ── Pass 1: ingestion.v1 ─────────────────────────────────────────────
+    // Generate ONLY message types (no server/client traits).
+    // This produces the real Rust structs at crate::ingestion::v1.
+    tonic_build::configure()
+        .build_server(false)
+        .build_client(false)
+        .compile_protos(
+            &[&format!("{}/ingestion/v1/events.proto", proto_root)],
+            &[&proto_root],
+        )?;
+
+    // ── Pass 2: processing.v1 ────────────────────────────────────────────
+    // Generate server + client. Use extern_path so prost does NOT re-generate
+    // ingestion types here — it references the ones from Pass 1 instead.
     tonic_build::configure()
         .build_server(true)
         .build_client(true)
         .file_descriptor_set_path(
-            std::path::PathBuf::from(std::env::var("OUT_DIR")?)
-                .join("processing_descriptor.bin"),
+            std::path::PathBuf::from(&out_dir).join("processing_descriptor.bin"),
         )
-        // prost generates super::super::ingestion::v1::MarketEvent
-        // which resolves to crate::ingestion::v1 — declare that path here
         .extern_path(".ingestion.v1", "crate::ingestion::v1")
         .compile_protos(
-            &[
-                &format!("{}/processing/v1/engine.proto", proto_root),
-                &format!("{}/ingestion/v1/events.proto", proto_root),
-            ],
+            &[&format!("{}/processing/v1/engine.proto", proto_root)],
             &[&proto_root],
         )?;
-    // Re-run build script if any proto file changes
+
     println!("cargo:rerun-if-changed={}/processing/v1/engine.proto", proto_root);
-    println!("cargo:rerun-if-changed={}/ingestion/v1/events.proto", proto_root);
+    println!("cargo:rerun-if-changed={}/ingestion/v1/events.proto",  proto_root);
     Ok(())
 }
