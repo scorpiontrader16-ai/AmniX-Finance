@@ -69,14 +69,47 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
+
+	// ── Liveness ─────────────────────────────────────────────────────────
+	// Kubernetes restarts the pod if this fails.
+	// Returns 200 as long as the process is running.
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "ok")
 	})
-	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
+
+	// ── Readiness ─────────────────────────────────────────────────────────
+	// Kubernetes stops sending traffic if this fails.
+	// Checks: Redpanda TCP reachable + Processing gRPC TCP reachable.
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+
+		type check struct {
+			name string
+			addr string
+		}
+
+		checks := []check{
+			{"redpanda", cfg.RedpandaBrokers},
+			{"processing-grpc", cfg.ProcessingAddr},
+		}
+
+		for _, c := range checks {
+			if err := dialTCP(ctx, c.addr); err != nil {
+				http.Error(
+					w,
+					fmt.Sprintf("%s not ready: %v", c.name, err),
+					http.StatusServiceUnavailable,
+				)
+				return
+			}
+		}
+
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "ready")
 	})
+
 	mux.HandleFunc("/v1/events", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -122,6 +155,7 @@ func main() {
 	shutCtx, shutCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutCancel()
 
+	// Mark not serving BEFORE stopping — Kubernetes stops traffic immediately
 	healthSrv.SetServingStatus("", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
 	grpcServer.GracefulStop()
 	if shutErr := httpServer.Shutdown(shutCtx); shutErr != nil {
@@ -129,6 +163,22 @@ func main() {
 	}
 	log.Info("shutdown complete")
 }
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+// dialTCP opens a TCP connection to addr and closes it immediately.
+// Used by /readyz to verify external dependencies are reachable.
+func dialTCP(ctx context.Context, addr string) error {
+	d := &net.Dialer{}
+	conn, err := d.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return err
+	}
+	conn.Close()
+	return nil
+}
+
+// ── Config ────────────────────────────────────────────────────────────────
 
 type Config struct {
 	GRPCPort        int
