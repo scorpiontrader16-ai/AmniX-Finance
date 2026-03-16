@@ -3,16 +3,17 @@ name = "processing"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.77"
+license = "MIT"
 
 [[bin]]
 name = "processing"
 path = "src/main.rs"
 
 [dependencies]
-tonic            = { version = "0.11", features = ["tls", "gzip"] }
-tonic-reflection = "0.11"
-prost            = "0.12"
-prost-types      = "0.12"
+tonic            = { version = "0.12", features = ["tls", "gzip"] }
+tonic-reflection = "0.12"
+prost            = "0.13"
+prost-types      = "0.13"
 
 tokio = { version = "1", features = [
   "rt-multi-thread", "macros", "signal", "time", "sync", "fs", "net"
@@ -24,10 +25,10 @@ rdkafka = { version = "0.36", features = ["cmake-build", "ssl"] }
 
 tracing               = "0.1"
 tracing-subscriber    = { version = "0.3", features = ["env-filter", "json"] }
-opentelemetry         = "0.22"
-opentelemetry_sdk     = { version = "0.22", features = ["rt-tokio"] }
-opentelemetry-otlp    = { version = "0.15", features = ["tonic"] }
-tracing-opentelemetry = "0.23"
+opentelemetry         = "0.24"
+opentelemetry_sdk     = { version = "0.24", features = ["rt-tokio"] }
+opentelemetry-otlp    = { version = "0.17", features = ["tonic"] }
+tracing-opentelemetry = "0.25"
 
 axum       = "0.7"
 tower-http = { version = "0.5", features = ["trace"] }
@@ -38,12 +39,11 @@ ndarray  = "0.15"
 
 thiserror = "1"
 anyhow    = "1"
-
 serde      = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [build-dependencies]
-tonic-build = { version = "0.11", features = ["prost"] }
+tonic-build = { version = "0.12", features = ["prost"] }
 
 [profile.release]
 opt-level     = 3
