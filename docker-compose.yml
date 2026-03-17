@@ -88,10 +88,32 @@ services:
     networks:
       - platform
 
+  # ── Loki — Log aggregation ────────────────────────────────────────────────
+  loki:
+    image: grafana/loki:2.9.4
+    container_name: loki
+    ports:
+      - "3100:3100"   # HTTP API + push endpoint
+    command: -config.file=/etc/loki/config.yaml
+    volumes:
+      - ./scripts/loki.yaml:/etc/loki/config.yaml:ro
+      - loki_data:/loki
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3100/ready || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - platform
+
   # ── OpenTelemetry Collector ───────────────────────────────────────────────
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.96.0
     container_name: otel-collector
+    depends_on:
+      loki:
+        condition: service_healthy
     ports:
       - "4317:4317"   # gRPC receiver
       - "4318:4318"   # HTTP receiver
@@ -100,6 +122,12 @@ services:
     volumes:
       - ./scripts/otel-collector.yaml:/etc/otel/config.yaml:ro
     command: ["--config=/etc/otel/config.yaml"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:13133/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     networks:
       - platform
 
@@ -117,7 +145,7 @@ services:
       processing:
         condition: service_healthy
       otel-collector:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "8090:8080"   # gRPC
       - "9091:9090"   # HTTP/metrics
@@ -147,7 +175,7 @@ services:
       redpanda:
         condition: service_healthy
       otel-collector:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "50051:50051"  # gRPC
       - "9093:9090"    # metrics
@@ -174,6 +202,7 @@ volumes:
   redpanda_data:
   postgres_data:
   redis_data:
+  loki_data:
 
 # ── Networks ──────────────────────────────────────────────────────────────
 networks:
