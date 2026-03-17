@@ -18,7 +18,7 @@ use crate::grpc::processing_v1::{
     processing_engine_service_client::ProcessingEngineServiceClient,
     ProcessEventRequest, ProcessingConfig,
 };
-use crate::ingestion::v1::MarketEvent;
+use crate::events::v1::BaseEvent;
 
 // ── Circuit Breaker ───────────────────────────────────────────────────────
 
@@ -235,17 +235,22 @@ async fn handle_message(
         }
     };
 
-    let event = match MarketEvent::decode(bytes.as_slice()) {
+    let event = match BaseEvent::decode(bytes.as_slice()) {
         Ok(e)  => e,
         Err(e) => {
             error!(error = %e, "protobuf decode failed");
-            counter!("processing_kafka_errors_total", "type" => "decode").increment(1);
+            counter!("processing_kafka_errors_total",   "type"   => "decode").increment(1);
             counter!("processing_kafka_messages_total", "status" => "decode_error").increment(1);
             return false;
         }
     };
 
-    info!(event_id = %event.event_id, symbol = %event.symbol, "forwarding event");
+    info!(
+        event_id   = %event.event_id,
+        event_type = %event.event_type,
+        source     = %event.source,
+        "forwarding event"
+    );
 
     let request = ProcessEventRequest {
         event:  Some(event),
@@ -266,7 +271,7 @@ async fn handle_message(
         }
         Err(e) => {
             error!(error = %e, "gRPC process_event failed");
-            counter!("processing_kafka_errors_total", "type" => "grpc").increment(1);
+            counter!("processing_kafka_errors_total",   "type"   => "grpc").increment(1);
             counter!("processing_kafka_messages_total", "status" => "grpc_error").increment(1);
             false
         }
@@ -296,8 +301,10 @@ async fn connect_with_retry(
                         addr, max_retries, e
                     ).into());
                 }
-                warn!(addr, attempt, max_retries,
-                    delay_secs = delay.as_secs(), error = %e,
+                warn!(
+                    addr, attempt, max_retries,
+                    delay_secs = delay.as_secs(),
+                    error      = %e,
                     "gRPC connection failed, retrying"
                 );
                 sleep(delay).await;
