@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package events.v1;
+
+// غيّر الـ go_package لـ module name بتاعك
+option go_package = "github.com/YOUR_ORG/YOUR_PROJECT/gen/events/v1;eventsv1";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+// BaseEvent — universal envelope يتحمل أي نوع بيانات
+message BaseEvent {
+  // Identity
+  string event_id      = 1; // UUID v7 (time-sortable)
+  string event_type    = 2; // "user.clicked" / "sensor.reading" / "trade.executed"
+  string source        = 3; // اسم الـ service اللي بعت الـ event
+  string schema_version = 4; // "1.0.0" semver
+
+  // Timing
+  google.protobuf.Timestamp occurred_at = 5; // وقت الحدث الفعلي
+  google.protobuf.Timestamp ingested_at = 6; // وقت الاستقبال
+
+  // Routing
+  string tenant_id     = 7; // multi-tenancy
+  string partition_key = 8; // Redpanda partition key
+
+  // Payload
+  google.protobuf.Struct metadata    = 9;  // key-value إضافية
+  bytes                  payload     = 10; // raw bytes (serialized domain event)
+  string                 content_type = 11; // "application/json" أو "application/octet-stream"
+
+  // Observability — ربط مع M3
+  string trace_id = 12;
+  string span_id  = 13;
+}
+
+// EventAck — confirmation من الـ processing engine
+message EventAck {
+  string event_id  = 1;
+  string status    = 2; // "processed" | "failed" | "skipped"
+  string error     = 3; // populated لو status == "failed"
+  google.protobuf.Timestamp processed_at = 4;
+}
