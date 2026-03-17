@@ -12,6 +12,10 @@ use axum::{
     routing::get,
     Router,
 };
+use prometheus::{
+    register_counter_vec, register_histogram_vec, register_gauge,
+    CounterVec, HistogramVec, Gauge, Encoder, TextEncoder,
+};
 use tokio::signal;
 use tokio_stream::wrappers::TcpListenerStream;
 use tracing::info;
@@ -21,37 +25,86 @@ mod engine;
 mod consumer;
 mod grpc;
 
-// ingestion::v1 MUST be at crate root.
-// processing.v1.rs references super::super::ingestion::v1::MarketEvent.
-// processing_v1 is at crate::grpc::processing_v1, so:
-//   super::super = crate  →  crate::ingestion::v1  ✅
 pub mod ingestion {
     pub mod v1 {
         tonic::include_proto!("ingestion.v1");
     }
 }
 
-// ── Health state ──────────────────────────────────────────────────────────
-/// Shared readiness flags updated by each subsystem.
-/// Kubernetes calls /readyz — returns 503 until all flags are true.
-/// Kubernetes calls /healthz — always 200 (liveness, process is alive).
-#[derive(Clone)]
-pub struct HealthState {
-    pub grpc_ready:  Arc<AtomicBool>,
-    pub kafka_ready: Arc<AtomicBool>,
+// ── Prometheus Metrics ────────────────────────────────────────────────────
+
+pub struct Metrics {
+    pub grpc_requests_total:    CounterVec,
+    pub grpc_request_duration:  HistogramVec,
+    pub kafka_messages_total:   CounterVec,
+    pub kafka_errors_total:     CounterVec,
+    pub circuit_breaker_state:  Gauge,
+    pub events_processed_total: CounterVec,
 }
 
-impl HealthState {
-    pub fn new() -> Self {
-        Self {
-            grpc_ready:  Arc::new(AtomicBool::new(false)),
-            kafka_ready: Arc::new(AtomicBool::new(false)),
-        }
+impl Metrics {
+    pub fn new() -> Result<Self, prometheus::Error> {
+        Ok(Self {
+            grpc_requests_total: register_counter_vec!(
+                "processing_grpc_requests_total",
+                "Total gRPC requests by method and status",
+                &["method", "status"]
+            )?,
+            grpc_request_duration: register_histogram_vec!(
+                "processing_grpc_request_duration_seconds",
+                "gRPC request duration in seconds",
+                &["method"],
+                vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
+            )?,
+            kafka_messages_total: register_counter_vec!(
+                "processing_kafka_messages_total",
+                "Total Kafka messages consumed by status",
+                &["status"]
+            )?,
+            kafka_errors_total: register_counter_vec!(
+                "processing_kafka_errors_total",
+                "Total Kafka errors by type",
+                &["error_type"]
+            )?,
+            circuit_breaker_state: register_gauge!(
+                "processing_circuit_breaker_open",
+                "1 if circuit breaker is open, 0 if closed"
+            )?,
+            events_processed_total: register_counter_vec!(
+                "processing_events_processed_total",
+                "Total events processed by type",
+                &["event_type"]
+            )?,
+        })
     }
 }
 
-impl Default for HealthState {
-    fn default() -> Self { Self::new() }
+impl Default for Metrics {
+    fn default() -> Self {
+        Self::new().expect("failed to register metrics")
+    }
+}
+
+// ── Health state ──────────────────────────────────────────────────────────
+
+#[derive(Clone)]
+pub struct AppState {
+    pub grpc_ready:  Arc<AtomicBool>,
+    pub kafka_ready: Arc<AtomicBool>,
+    /// Held here to keep the Arc alive for the full process lifetime.
+    /// Actual metric updates happen inside Engine and KafkaConsumer.
+    #[allow(dead_code)]
+    pub metrics: Arc<Metrics>,
+}
+
+impl AppState {
+    pub fn new(metrics: Arc<Metrics>) -> Self {
+        Self {
+            grpc_ready:  Arc::new(AtomicBool::new(false)),
+            kafka_ready: Arc::new(AtomicBool::new(false)),
+            metrics,
+        }
+    }
 }
 
 #[tokio::main]
@@ -72,14 +125,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "starting processing service"
     );
 
-    let health = HealthState::new();
+    let metrics = Arc::new(Metrics::new()?);
+    let state   = AppState::new(metrics.clone());
 
     // ── Shutdown channel ──────────────────────────────────────────────────
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
     // ── gRPC server ───────────────────────────────────────────────────────
-    // Bind the TCP listener BEFORE spawning so we can set grpc_ready
-    // immediately after the port is open — no race condition.
     let grpc_addr: SocketAddr = format!("0.0.0.0:{}", config.grpc_port)
         .parse()
         .map_err(|e| format!("invalid gRPC address: {e}"))?;
@@ -92,10 +144,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_v1()
         .map_err(|e| format!("reflection build error: {e}"))?;
 
-    let engine = grpc::Engine::new();
+    let engine = grpc::Engine::new(metrics.clone());
 
-    // Port is bound — gRPC is ready to accept connections
-    health.grpc_ready.store(true, Ordering::Relaxed);
+    state.grpc_ready.store(true, Ordering::Relaxed);
     info!(port = config.grpc_port, "gRPC server listening");
 
     tokio::spawn(async move {
@@ -109,9 +160,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── Kafka consumer ────────────────────────────────────────────────────
     let consumer_config = consumer::ConsumerConfig::from_env();
-    match consumer::KafkaConsumer::new(consumer_config).await {
+    match consumer::KafkaConsumer::new(consumer_config, metrics.clone()).await {
         Ok(kafka) => {
-            health.kafka_ready.store(true, Ordering::Relaxed);
+            state.kafka_ready.store(true, Ordering::Relaxed);
             info!("Kafka consumer connected and ready");
             let rx = shutdown_rx.clone();
             tokio::spawn(async move {
@@ -119,18 +170,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
         }
         Err(e) => {
-            // Log but don't crash — service still serves gRPC without Kafka.
-            // /readyz will return 503 until Kafka is available.
             tracing::warn!(
                 error = %e,
                 "Kafka consumer failed to start — readyz will report not-ready"
             );
         }
     }
-    // shutdown_rx kept alive until end of main so the watch channel stays open
     drop(shutdown_rx);
 
-    // ── HTTP server (health + metrics) ────────────────────────────────────
+    // ── HTTP server ───────────────────────────────────────────────────────
     let metrics_addr: SocketAddr = format!("0.0.0.0:{}", config.metrics_port)
         .parse()
         .map_err(|e| format!("invalid metrics address: {e}"))?;
@@ -143,7 +191,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = shutdown_tx.send(true);
     };
 
-    run_http_server(metrics_addr, health, shutdown).await?;
+    run_http_server(metrics_addr, state, shutdown).await?;
     info!("shutdown complete");
     Ok(())
 }
@@ -151,17 +199,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 // ── HTTP server ───────────────────────────────────────────────────────────
 async fn run_http_server(
     addr:     SocketAddr,
-    health:   HealthState,
+    state:    AppState,
     shutdown: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
-        // Liveness — always 200 if the process is alive
         .route("/healthz", get(healthz))
-        // Readiness — 200 only when gRPC + Kafka are both ready
         .route("/readyz",  get(readyz))
-        // Metrics placeholder (replaced in next milestone with real Prometheus)
-        .route("/metrics", get(|| async { "# metrics\n" }))
-        .with_state(health);
+        .route("/metrics", get(metrics_handler))
+        .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     info!(port = addr.port(), "HTTP server listening");
@@ -175,15 +220,11 @@ async fn run_http_server(
 
 // ── Health handlers ───────────────────────────────────────────────────────
 
-/// Liveness probe — Kubernetes restarts the pod if this fails.
-/// Returns 200 as long as the process is running.
 async fn healthz() -> impl IntoResponse {
     StatusCode::OK
 }
 
-/// Readiness probe — Kubernetes stops sending traffic if this fails.
-/// Returns 200 only when ALL subsystems are ready.
-async fn readyz(State(state): State<HealthState>) -> impl IntoResponse {
+async fn readyz(State(state): State<AppState>) -> impl IntoResponse {
     let grpc_ok  = state.grpc_ready.load(Ordering::Relaxed);
     let kafka_ok = state.kafka_ready.load(Ordering::Relaxed);
 
@@ -194,6 +235,20 @@ async fn readyz(State(state): State<HealthState>) -> impl IntoResponse {
         tracing::warn!(reason, "readyz check failed");
         (StatusCode::SERVICE_UNAVAILABLE, reason)
     }
+}
+
+/// Real Prometheus metrics endpoint
+async fn metrics_handler() -> impl IntoResponse {
+    let encoder = TextEncoder::new();
+    let metric_families = prometheus::gather();
+    let mut buffer = Vec::new();
+    encoder.encode(&metric_families, &mut buffer)
+        .unwrap_or_default();
+    (
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+        buffer,
+    )
 }
 
 // ── Config ────────────────────────────────────────────────────────────────
