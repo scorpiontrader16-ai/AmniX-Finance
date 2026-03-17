@@ -1,0 +1,89 @@
+# docker/docker-compose.m4.yml
+#
+# الاستخدام: docker compose -f docker-compose.yml -f docker/docker-compose.m4.yml up -d
+#
+# تأكد إن اسم الـ network هنا (app-network) نفس الاسم في docker-compose.yml الأصلي
+# لو عندك اسم مختلف، غيّره في كل الـ services تحت
+
+services:
+
+  # ─────────────────────────────────────────────────────────
+  # Schema Registry — Confluent (compatible مع Redpanda)
+  # ─────────────────────────────────────────────────────────
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.1
+    container_name: schema-registry
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      # غيّر redpanda:9092 لو اسم الـ service عندك مختلف
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "redpanda:9092"
+      SCHEMA_REGISTRY_LISTENERS: "http://0.0.0.0:8081"
+      SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL: "BACKWARD"
+      SCHEMA_REGISTRY_LOG4J_ROOT_LOGLEVEL: "WARN"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/subjects || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - app-network
+
+  # ─────────────────────────────────────────────────────────
+  # MinIO — S3-compatible Cold Storage (self-hosted)
+  # ─────────────────────────────────────────────────────────
+  minio:
+    image: minio/minio:RELEASE.2024-06-13T22-53-53Z
+    container_name: minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"   # S3 API endpoint
+      - "9001:9001"   # Web Console → http://localhost:9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin123}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - app-network
+
+  # ─────────────────────────────────────────────────────────
+  # MinIO Init — يعمل الـ buckets تلقائياً مرة واحدة عند الـ startup
+  # ─────────────────────────────────────────────────────────
+  minio-init:
+    image: minio/mc:latest
+    container_name: minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"  # يشتغل مرة واحدة بس
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 $${MINIO_ACCESS_KEY:-minioadmin} $${MINIO_SECRET_KEY:-minioadmin123};
+        mc mb --ignore-existing local/cold-data;
+        mc mb --ignore-existing local/redpanda-tiered;
+        mc mb --ignore-existing local/parquet-archive;
+        echo 'MinIO buckets created';
+        mc ls local;
+      "
+    networks:
+      - app-network
+
+volumes:
+  minio_data:
+    driver: local
+
+networks:
+  app-network:
+    external: true  # يستخدم الـ network الموجودة من docker-compose.yml الأصلي
