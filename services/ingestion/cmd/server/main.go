@@ -98,14 +98,9 @@ func newCircuitBreaker(name string, log *zap.Logger) *gobreaker.CircuitBreaker {
 
 // ── Structured Errors ─────────────────────────────────────────────────────
 
-// Sentinel gRPC errors — returned by handlers and interceptors.
-// ErrUpstreamDown and ErrInvalidPayload are package-level sentinels
-// used by the /readyz handler and future route handlers.
-var (
-	ErrRateLimited    = status.Error(codes.ResourceExhausted, "rate limit exceeded, try again later")
-	ErrUpstreamDown   = status.Error(codes.Unavailable, "upstream dependency not reachable")
-	ErrInvalidPayload = status.Error(codes.InvalidArgument, "invalid request payload")
-)
+// ErrRateLimited is returned by the gRPC interceptor and HTTP handler
+// when the rate limiter rejects a request.
+var ErrRateLimited = status.Error(codes.ResourceExhausted, "rate limit exceeded, try again later")
 
 func main() {
 	log, err := zap.NewProduction()
@@ -133,7 +128,6 @@ func main() {
 	}()
 	otel.SetTracerProvider(tp)
 
-	// Circuit breakers
 	redpandaCB := newCircuitBreaker("redpanda", log)
 	processingCB := newCircuitBreaker("processing-grpc", log)
 
@@ -190,7 +184,7 @@ func main() {
 			if cbErr != nil {
 				if cbErr == gobreaker.ErrOpenState {
 					http.Error(w,
-						fmt.Sprintf("%s: %s", c.name, ErrUpstreamDown.Error()),
+						fmt.Sprintf("%s: upstream not reachable", c.name),
 						http.StatusServiceUnavailable,
 					)
 					return
@@ -207,7 +201,7 @@ func main() {
 		fmt.Fprint(w, "ready")
 	})
 
-	// ── Events endpoint with rate limiting + metrics ───────────────────────
+	// ── Events endpoint ───────────────────────────────────────────────────
 	mux.HandleFunc("/v1/events", func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		path := "/v1/events"
@@ -217,7 +211,7 @@ func main() {
 
 		if r.Method != http.MethodPost {
 			httpRequestsTotal.WithLabelValues(r.Method, path, "405").Inc()
-			http.Error(w, ErrInvalidPayload.Error(), http.StatusMethodNotAllowed)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
