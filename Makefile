@@ -1,130 +1,46 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# Platform Makefile
-# Usage: make <target>
-# ─────────────────────────────────────────────────────────────────────────────
+# ============================================================
+# أضف الـ targets دي في نهاية Makefile الموجود عندك
+# ============================================================
 
-.PHONY: help dev down logs logs-ingestion logs-processing \
-        proto proto-lint proto-breaking \
-        build-go build-rust build-rust-dev build \
-        test-go test-rust test \
-        lint-go lint-rust lint \
-        fmt-go fmt-rust fmt \
-        deny-rust health clean
+SCHEMA_REGISTRY_URL ?= http://localhost:8081
+PROTO_DIR           ?= ./proto
 
-help:
+# ─── Schema ──────────────────────────────────────────────
+.PHONY: schema-register schema-list proto-gen
+
+schema-register: ## يسجل كل الـ proto schemas
+	SCHEMA_REGISTRY_URL=$(SCHEMA_REGISTRY_URL) \
+	PROTO_DIR=$(PROTO_DIR) \
+	bash ./scripts/register-schemas.sh
+
+schema-list: ## يعرض كل الـ registered subjects
+	@curl -s $(SCHEMA_REGISTRY_URL)/subjects | jq .
+
+proto-gen: ## يولد Go code من الـ proto files (يحتاج buf)
+	buf generate
+
+# ─── M4 Services ─────────────────────────────────────────
+.PHONY: m4-up m4-down m4-logs
+
+m4-up: ## يشغل M4 services (Schema Registry + MinIO)
+	docker compose -f docker-compose.yml -f docker/docker-compose.m4.yml up -d
+	@echo "⏳ Waiting for services to be healthy..."
+	@sleep 8
+	@$(MAKE) schema-register
 	@echo ""
-	@echo "  Platform — Available Commands"
-	@echo "  ─────────────────────────────────────────────"
-	@echo "  make dev          Start all services locally"
-	@echo "  make down         Stop all services"
-	@echo "  make logs         Tail all logs"
-	@echo "  make proto        Generate code from .proto files"
-	@echo "  make build-go     Build Go ingestion service"
-	@echo "  make build-rust   Build Rust processing service"
-	@echo "  make test-go      Run Go tests"
-	@echo "  make test-rust    Run Rust tests"
-	@echo "  make lint         Run all linters"
-	@echo "  make fmt          Format all code"
-	@echo "  make health       Check all services health"
-	@echo "  make clean        Remove build artifacts"
-	@echo ""
+	@echo "✅ M4 ready"
+	@echo "   Schema Registry : $(SCHEMA_REGISTRY_URL)/subjects"
+	@echo "   MinIO Console   : http://localhost:9001  (admin/minioadmin123)"
 
-# ── Local Development ─────────────────────────────────────────────────────
-dev:
-	docker compose up -d
-	@echo ""
-	@echo "  Services running:"
-	@echo "  Redpanda Console   → http://localhost:8080"
-	@echo "  Ingestion HTTP     → http://localhost:9091"
-	@echo "  Ingestion gRPC     → localhost:8090"
-	@echo "  Processing gRPC    → localhost:50051"
-	@echo "  Processing metrics → http://localhost:9093/metrics"
-	@echo "  Postgres           → localhost:5432"
-	@echo "  Redis              → localhost:6379"
-	@echo ""
+m4-down: ## يوقف M4 services
+	docker compose -f docker-compose.yml -f docker/docker-compose.m4.yml down
 
-down:
-	docker compose down -v
+m4-logs: ## يعرض logs الـ M4 services
+	docker compose -f docker-compose.yml -f docker/docker-compose.m4.yml logs -f schema-registry minio
 
-logs:
-	docker compose logs -f
+# ─── Tests ───────────────────────────────────────────────
+.PHONY: test-schema
 
-logs-ingestion:
-	docker compose logs -f ingestion
-
-logs-processing:
-	docker compose logs -f processing
-
-# ── Proto ─────────────────────────────────────────────────────────────────
-proto:
-	cd proto && buf generate
-	@echo "Proto generation complete"
-
-proto-lint:
-	cd proto && buf lint
-
-proto-breaking:
-	cd proto && buf breaking --against '.git#branch=main'
-
-# ── Go ────────────────────────────────────────────────────────────────────
-# main.go lives at services/ingestion/main.go — build target is . (package root)
-build-go:
-	cd services/ingestion && \
-	CGO_ENABLED=0 go build \
-		-ldflags="-s -w -X main.version=$$(git rev-parse --short HEAD)" \
-		-trimpath \
-		-o bin/server \
-		.
-
-test-go:
-	cd services/ingestion && go test ./... -timeout 60s -race
-
-lint-go:
-	cd services/ingestion && go vet ./...
-
-fmt-go:
-	cd services/ingestion && gofmt -w .
-
-# ── Rust ─────────────────────────────────────────────────────────────────
-build-rust:
-	cd services/processing && cargo build --release
-
-build-rust-dev:
-	cd services/processing && cargo build
-
-test-rust:
-	cd services/processing && cargo test
-
-lint-rust:
-	cd services/processing && cargo clippy -- -D warnings
-
-fmt-rust:
-	cd services/processing && cargo fmt
-
-deny-rust:
-	cd services/processing && cargo deny check
-
-# ── Combined ──────────────────────────────────────────────────────────────
-build: build-go build-rust
-
-test: test-go test-rust
-
-lint: lint-go lint-rust proto-lint
-
-fmt: fmt-go fmt-rust
-
-# ── Health checks ─────────────────────────────────────────────────────────
-health:
-	@echo "── Ingestion ──────────────────────────────────"
-	@curl -sf http://localhost:9091/healthz && echo " ✅ live"  || echo " ❌ down"
-	@curl -sf http://localhost:9091/readyz  && echo " ✅ ready" || echo " ❌ not ready"
-	@echo "── Processing ─────────────────────────────────"
-	@curl -sf http://localhost:9093/healthz && echo " ✅ live"  || echo " ❌ down"
-	@curl -sf http://localhost:9093/readyz  && echo " ✅ ready" || echo " ❌ not ready"
-	@echo "── Metrics ────────────────────────────────────"
-	@curl -sf http://localhost:9093/metrics | head -5 && echo "..." || echo " ❌ no metrics"
-
-# ── Cleanup ───────────────────────────────────────────────────────────────
-clean:
-	rm -rf services/ingestion/bin
-	cd services/processing && cargo clean
+test-schema: ## integration tests للـ schema registry
+	SCHEMA_REGISTRY_URL=$(SCHEMA_REGISTRY_URL) \
+	go test -tags=integration -v -timeout=60s ./internal/schemaregistry/...
