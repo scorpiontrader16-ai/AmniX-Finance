@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package events.v1;
+
+option go_package = "github.com/aminpola2001-ctrl/youtuop/gen/events/v1;eventsv1";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+message BaseEvent {
+  string event_id       = 1;
+  string event_type     = 2;
+  string source         = 3;
+  string schema_version = 4;
+
+  google.protobuf.Timestamp occurred_at = 5;
+  google.protobuf.Timestamp ingested_at = 6;
+
+  string tenant_id     = 7;
+  string partition_key = 8;
+
+  google.protobuf.Struct metadata     = 9;
+  bytes                  payload      = 10;
+  string                 content_type = 11;
+
+  string trace_id = 12;
+  string span_id  = 13;
+}
+
+message EventAck {
+  string event_id  = 1;
+  string status    = 2;
+  string error     = 3;
+  google.protobuf.Timestamp processed_at = 4;
+}
