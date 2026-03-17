@@ -6,7 +6,7 @@ package processing.v1;
 option go_package = "github.com/your-org/platform/services/ingestion/gen/processing/v1;processingv1";
 
 import "google/protobuf/timestamp.proto";
-import "ingestion/v1/events.proto";
+import "events/v1/event.proto";
 
 service ProcessingEngineService {
   rpc ProcessEvent(ProcessEventRequest)
