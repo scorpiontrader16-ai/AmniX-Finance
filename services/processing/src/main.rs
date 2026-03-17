@@ -12,10 +12,7 @@ use axum::{
     routing::get,
     Router,
 };
-use prometheus::{
-    register_counter_vec, register_histogram_vec, register_gauge,
-    CounterVec, HistogramVec, Gauge, Encoder, TextEncoder,
-};
+use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 use tokio::signal;
 use tokio_stream::wrappers::TcpListenerStream;
 use tracing::info;
@@ -31,80 +28,25 @@ pub mod ingestion {
     }
 }
 
-// ── Prometheus Metrics ────────────────────────────────────────────────────
-
-pub struct Metrics {
-    pub grpc_requests_total:    CounterVec,
-    pub grpc_request_duration:  HistogramVec,
-    pub kafka_messages_total:   CounterVec,
-    pub kafka_errors_total:     CounterVec,
-    pub circuit_breaker_state:  Gauge,
-    pub events_processed_total: CounterVec,
-}
-
-impl Metrics {
-    pub fn new() -> Result<Self, prometheus::Error> {
-        Ok(Self {
-            grpc_requests_total: register_counter_vec!(
-                "processing_grpc_requests_total",
-                "Total gRPC requests by method and status",
-                &["method", "status"]
-            )?,
-            grpc_request_duration: register_histogram_vec!(
-                "processing_grpc_request_duration_seconds",
-                "gRPC request duration in seconds",
-                &["method"],
-                vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
-            )?,
-            kafka_messages_total: register_counter_vec!(
-                "processing_kafka_messages_total",
-                "Total Kafka messages consumed by status",
-                &["status"]
-            )?,
-            kafka_errors_total: register_counter_vec!(
-                "processing_kafka_errors_total",
-                "Total Kafka errors by type",
-                &["error_type"]
-            )?,
-            circuit_breaker_state: register_gauge!(
-                "processing_circuit_breaker_open",
-                "1 if circuit breaker is open, 0 if closed"
-            )?,
-            events_processed_total: register_counter_vec!(
-                "processing_events_processed_total",
-                "Total events processed by type",
-                &["event_type"]
-            )?,
-        })
-    }
-}
-
-impl Default for Metrics {
-    fn default() -> Self {
-        Self::new().expect("failed to register metrics")
-    }
-}
-
 // ── Health state ──────────────────────────────────────────────────────────
 
 #[derive(Clone)]
 pub struct AppState {
     pub grpc_ready:  Arc<AtomicBool>,
     pub kafka_ready: Arc<AtomicBool>,
-    /// Held here to keep the Arc alive for the full process lifetime.
-    /// Actual metric updates happen inside Engine and KafkaConsumer.
-    #[allow(dead_code)]
-    pub metrics: Arc<Metrics>,
 }
 
 impl AppState {
-    pub fn new(metrics: Arc<Metrics>) -> Self {
+    pub fn new() -> Self {
         Self {
             grpc_ready:  Arc::new(AtomicBool::new(false)),
             kafka_ready: Arc::new(AtomicBool::new(false)),
-            metrics,
         }
     }
+}
+
+impl Default for AppState {
+    fn default() -> Self { Self::new() }
 }
 
 #[tokio::main]
@@ -125,8 +67,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "starting processing service"
     );
 
-    let metrics = Arc::new(Metrics::new()?);
-    let state   = AppState::new(metrics.clone());
+    // ── Prometheus exporter ───────────────────────────────────────────────
+    // PrometheusBuilder installs a global recorder — all metrics:: calls
+    // anywhere in the codebase are captured automatically.
+    let prometheus_handle = PrometheusBuilder::new()
+        .install_recorder()
+        .map_err(|e| format!("failed to install prometheus recorder: {e}"))?;
+
+    let state = AppState::new();
 
     // ── Shutdown channel ──────────────────────────────────────────────────
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
@@ -144,7 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_v1()
         .map_err(|e| format!("reflection build error: {e}"))?;
 
-    let engine = grpc::Engine::new(metrics.clone());
+    let engine = grpc::Engine::new();
 
     state.grpc_ready.store(true, Ordering::Relaxed);
     info!(port = config.grpc_port, "gRPC server listening");
@@ -160,7 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── Kafka consumer ────────────────────────────────────────────────────
     let consumer_config = consumer::ConsumerConfig::from_env();
-    match consumer::KafkaConsumer::new(consumer_config, metrics.clone()).await {
+    match consumer::KafkaConsumer::new(consumer_config).await {
         Ok(kafka) => {
             state.kafka_ready.store(true, Ordering::Relaxed);
             info!("Kafka consumer connected and ready");
@@ -191,21 +139,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = shutdown_tx.send(true);
     };
 
-    run_http_server(metrics_addr, state, shutdown).await?;
+    run_http_server(metrics_addr, state, prometheus_handle, shutdown).await?;
     info!("shutdown complete");
     Ok(())
 }
 
 // ── HTTP server ───────────────────────────────────────────────────────────
 async fn run_http_server(
-    addr:     SocketAddr,
-    state:    AppState,
-    shutdown: impl std::future::Future<Output = ()> + Send + 'static,
+    addr:             SocketAddr,
+    state:            AppState,
+    prometheus_handle: PrometheusHandle,
+    shutdown:         impl std::future::Future<Output = ()> + Send + 'static,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .route("/healthz", get(healthz))
         .route("/readyz",  get(readyz))
-        .route("/metrics", get(metrics_handler))
+        .route("/metrics", get({
+            let handle = prometheus_handle.clone();
+            move || {
+                let h = handle.clone();
+                async move {
+                    (
+                        StatusCode::OK,
+                        [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+                        h.render(),
+                    )
+                }
+            }
+        }))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -237,35 +198,18 @@ async fn readyz(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
-/// Real Prometheus metrics endpoint
-async fn metrics_handler() -> impl IntoResponse {
-    let encoder = TextEncoder::new();
-    let metric_families = prometheus::gather();
-    let mut buffer = Vec::new();
-    encoder.encode(&metric_families, &mut buffer)
-        .unwrap_or_default();
-    (
-        StatusCode::OK,
-        [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
-        buffer,
-    )
-}
-
 // ── Config ────────────────────────────────────────────────────────────────
 #[derive(Debug)]
 pub struct Config {
-    pub grpc_port:        u16,
-    pub metrics_port:     u16,
-    pub redpanda_brokers: String,
+    pub grpc_port:    u16,
+    pub metrics_port: u16,
 }
 
 impl Config {
     pub fn from_env() -> Result<Self, String> {
         Ok(Self {
-            grpc_port:        parse_port("GRPC_PORT",    50051)?,
-            metrics_port:     parse_port("METRICS_PORT", 9090)?,
-            redpanda_brokers: std::env::var("REDPANDA_BROKERS")
-                .unwrap_or_else(|_| "redpanda:9092".into()),
+            grpc_port:    parse_port("GRPC_PORT",    50051)?,
+            metrics_port: parse_port("METRICS_PORT", 9090)?,
         })
     }
 }
