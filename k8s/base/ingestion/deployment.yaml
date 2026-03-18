@@ -64,6 +64,12 @@ spec:
               value: "otel-collector.monitoring.svc.cluster.local:4317"
             - name: OTEL_SERVICE_NAME
               value: "ingestion"
+            - name: TLS_CERT_FILE
+              value: /etc/tls/tls.crt
+            - name: TLS_KEY_FILE
+              value: /etc/tls/tls.key
+            - name: TLS_CA_FILE
+              value: /etc/tls/ca.crt
           envFrom:
             - secretRef:
                 name: ingestion-secrets
@@ -97,7 +103,13 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: tls
+              mountPath: /etc/tls
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: tls
+          secret:
+            secretName: ingestion-tls
       terminationGracePeriodSeconds: 60
