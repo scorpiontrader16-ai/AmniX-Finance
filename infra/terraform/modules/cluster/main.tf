@@ -174,26 +174,6 @@ resource "aws_iam_role" "github_actions" {
   })
 }
 
-output "cluster_endpoint" {
-  value = aws_eks_cluster.main.endpoint
-}
-
-output "cluster_ca_data" {
-  value = aws_eks_cluster.main.certificate_authority[0].data
-}
-
-output "cluster_name" {
-  value = aws_eks_cluster.main.name
-}
-
-output "kms_key_id" {
-  value = aws_kms_key.eks.arn
-}
-
-output "github_actions_role_arn" {
-  value = aws_iam_role.github_actions.arn
-}
-# OIDC Provider for IRSA (EKS pods)
 data "tls_certificate" "eks" {
   url = aws_eks_cluster.main.identity[0].oidc[0].issuer
 }
@@ -204,7 +184,6 @@ resource "aws_iam_openid_connect_provider" "eks" {
   thumbprint_list = [data.tls_certificate.eks.certificates[0].sha1_fingerprint]
 }
 
-# cert-manager via Helm
 resource "helm_release" "cert_manager" {
   name             = "cert-manager"
   repository       = "https://charts.jetstack.io"
@@ -224,6 +203,42 @@ resource "helm_release" "cert_manager" {
   }
 
   depends_on = [aws_eks_node_group.arm64]
+}
+
+resource "helm_release" "external_secrets" {
+  name             = "external-secrets"
+  repository       = "https://charts.external-secrets.io"
+  chart            = "external-secrets"
+  version          = "0.9.13"
+  namespace        = "external-secrets"
+  create_namespace = true
+
+  set {
+    name  = "installCRDs"
+    value = "true"
+  }
+
+  depends_on = [aws_eks_node_group.arm64]
+}
+
+output "cluster_endpoint" {
+  value = aws_eks_cluster.main.endpoint
+}
+
+output "cluster_ca_data" {
+  value = aws_eks_cluster.main.certificate_authority[0].data
+}
+
+output "cluster_name" {
+  value = aws_eks_cluster.main.name
+}
+
+output "kms_key_id" {
+  value = aws_kms_key.eks.arn
+}
+
+output "github_actions_role_arn" {
+  value = aws_iam_role.github_actions.arn
 }
 
 output "oidc_provider_arn" {
