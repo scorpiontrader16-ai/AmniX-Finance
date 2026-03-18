@@ -47,15 +47,6 @@ module "cluster" {
   subnet_ids   = module.vpc.private_subnet_ids
 }
 
-module "vault" {
-  source            = "../../modules/vault"
-  cluster_name      = var.cluster_name
-  environment       = "production"
-  kms_key_id        = module.cluster.kms_key_id
-  oidc_provider_arn = module.cluster.oidc_provider_arn
-  oidc_provider_url = module.cluster.oidc_provider_url
-}
-
 module "databases" {
   source       = "../../modules/databases"
   cluster_name = var.cluster_name
@@ -70,4 +61,13 @@ module "redpanda" {
   cluster_name = var.cluster_name
   environment  = "production"
   broker_count = 3
+}
+
+module "vault" {
+  source            = "../../modules/vault"
+  cluster_name      = var.cluster_name
+  environment       = "production"
+  kms_key_id        = module.cluster.kms_key_id
+  oidc_provider_arn = module.cluster.oidc_provider_arn
+  oidc_provider_url = module.cluster.oidc_provider_url
 }
