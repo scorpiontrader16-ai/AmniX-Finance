@@ -15,9 +15,6 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-// migrations/ موجودة في نفس الـ package directory:
-// services/ingestion/internal/postgres/migrations/
-//
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
@@ -245,6 +242,39 @@ func (c *Client) MarkArchived(ctx context.Context, eventIDs []string) error {
 	return nil
 }
 
+// RecordParquetKey يسجّل الـ S3 key قبل MarkArchived لضمان idempotency
+func (c *Client) RecordParquetKey(ctx context.Context, eventIDs []string, key string) error {
+	if len(eventIDs) == 0 {
+		return nil
+	}
+	_, err := c.db.ExecContext(ctx, `
+		UPDATE warm_events
+		SET    parquet_key = $1
+		WHERE  event_id    = ANY($2::TEXT[])
+		AND    parquet_key IS NULL`,
+		key, eventIDs,
+	)
+	if err != nil {
+		return fmt.Errorf("record parquet key: %w", err)
+	}
+	return nil
+}
+
+// RecoverPendingArchive يُكمل الـ records التي كُتب لها Parquet لكن لم تُحدَّث archived_at
+func (c *Client) RecoverPendingArchive(ctx context.Context) error {
+	_, err := c.db.ExecContext(ctx, `
+		UPDATE warm_events
+		SET    archived_at = NOW()
+		WHERE  parquet_key IS NOT NULL
+		AND    archived_at IS NULL`,
+	)
+	if err != nil {
+		return fmt.Errorf("recover pending archive: %w", err)
+	}
+	return nil
+}
+
+// GetUnarchived يجيب records التي لم تُكتب لها Parquet بعد
 func (c *Client) GetUnarchived(ctx context.Context, olderThan time.Time, limit int) ([]WarmEvent, error) {
 	rows, err := c.db.QueryContext(ctx, `
 		SELECT event_id,    event_type,    source,      schema_version,
@@ -253,7 +283,8 @@ func (c *Client) GetUnarchived(ctx context.Context, olderThan time.Time, limit i
 		       occurred_at, ingested_at
 		FROM   warm_events
 		WHERE  archived_at IS NULL
-		AND    occurred_at < $1
+		AND    parquet_key  IS NULL
+		AND    occurred_at  < $1
 		ORDER  BY occurred_at ASC
 		LIMIT  $2`,
 		olderThan, limit,
