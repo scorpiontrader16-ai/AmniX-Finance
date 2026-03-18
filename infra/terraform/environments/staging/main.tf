@@ -71,3 +71,7 @@ module "vault" {
   oidc_provider_arn = module.cluster.oidc_provider_arn
   oidc_provider_url = module.cluster.oidc_provider_url
 }
+
+output "eso_role_arn" {
+  value = module.vault.eso_role_arn
+}
