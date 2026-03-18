@@ -64,8 +64,10 @@ module "redpanda" {
 }
 
 module "vault" {
-  source       = "../../modules/vault"
-  cluster_name = var.cluster_name
-  environment  = "staging"
-  kms_key_id   = module.cluster.kms_key_id
+  source            = "../../modules/vault"
+  cluster_name      = var.cluster_name
+  environment       = "staging"
+  kms_key_id        = module.cluster.kms_key_id
+  oidc_provider_arn = module.cluster.oidc_provider_arn
+  oidc_provider_url = module.cluster.oidc_provider_url
 }
