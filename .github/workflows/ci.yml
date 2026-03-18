@@ -214,12 +214,6 @@ jobs:
           CLICKHOUSE_DB:       events
           CLICKHOUSE_USER:     platform
           CLICKHOUSE_PASSWORD: platform
-        options: >-
-          --health-cmd "wget -qO- http://localhost:8123/ping || exit 1"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 15
-          --health-start-period 20s
         ports:
           - 8123:8123
           - 9100:9000
