@@ -5,6 +5,8 @@ go 1.22
 require (
 	github.com/ClickHouse/clickhouse-go/v2      v2.23.2
 	github.com/jackc/pgx/v5                     v5.5.5
+	github.com/minio/minio-go/v7                v7.0.70
+	github.com/parquet-go/parquet-go            v0.23.0
 	github.com/pressly/goose/v3                 v3.20.0
 	github.com/prometheus/client_golang          v1.19.0
 	github.com/sony/gobreaker                   v0.5.0
