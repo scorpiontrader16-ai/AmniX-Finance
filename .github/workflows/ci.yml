@@ -51,8 +51,7 @@ jobs:
           CGO_ENABLED=0 go build \
             -ldflags="-s -w -X main.version=ci" \
             -trimpath \
-            -o /dev/null \
-            .
+            ./cmd/server
 
       - name: Vet
         working-directory: services/ingestion
