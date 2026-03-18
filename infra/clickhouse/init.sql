@@ -1,55 +1,37 @@
 -- infra/clickhouse/init.sql
--- Hot Data Schema — يتنفذ تلقائياً عند أول startup
+-- تمت إزالة أوامر CREATE USER و GRANT لأن المستخدم platform موجود مسبقاً
+-- وتم إصلاح التعليقات داخل تعريف الأعمدة
 
--- ── Database ──────────────────────────────────────────────────────────────
 CREATE DATABASE IF NOT EXISTS events;
 
--- ── Main Events Table ─────────────────────────────────────────────────────
--- MergeTree: الأسرع للـ append-heavy workloads
--- Partition by month: يسرّع الـ time-range queries
--- TTL: بعد 7 أيام ينقل البيانات لـ Postgres (Warm)
 CREATE TABLE IF NOT EXISTS events.base_events
 (
-    -- Identity
     event_id       String,
-    event_type     LowCardinality(String),  -- LowCardinality: أسرع لـ repeated values
+    event_type     LowCardinality(String),
     source         LowCardinality(String),
     schema_version LowCardinality(String),
-
-    -- Timing
-    occurred_at    DateTime64(3, 'UTC'),     -- millisecond precision
+    occurred_at    DateTime64(3, 'UTC'),
     ingested_at    DateTime64(3, 'UTC'),
-
-    -- Routing
     tenant_id      LowCardinality(String),
     partition_key  String,
-
-    -- Payload
     content_type   LowCardinality(String),
-    payload        String,                   -- JSON string من الـ metadata
-    payload_bytes  UInt32 DEFAULT 0,         -- حجم الـ payload بالـ bytes
-
-    -- Observability
+    payload        String,
+    payload_bytes  UInt32 DEFAULT 0,
     trace_id       String,
     span_id        String,
-
-    -- Metadata (flattened للـ fast querying)
     meta_keys      Array(String),
     meta_values    Array(String),
-
-    -- Ingestion metadata
     inserted_at    DateTime64(3, 'UTC') DEFAULT now64(3)
 )
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(occurred_at)
 ORDER BY (tenant_id, event_type, occurred_at, event_id)
-TTL occurred_at + INTERVAL 7 DAY
+TTL toDateTime(occurred_at) + INTERVAL 7 DAY   -- تحويل إلى DateTime لحل مشكلة TTL
 SETTINGS
     index_granularity = 8192,
     ttl_only_drop_parts = 1;
 
--- ── Materialized View: Events by Type ─────────────────────────────────────
--- يسرّع الـ queries اللي بتفلتر على event_type
+-- جدول events_by_type
 CREATE TABLE IF NOT EXISTS events.events_by_type
 (
     event_type  LowCardinality(String),
@@ -62,8 +44,9 @@ CREATE TABLE IF NOT EXISTS events.events_by_type
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(occurred_at)
 ORDER BY (event_type, tenant_id, occurred_at)
-TTL occurred_at + INTERVAL 7 DAY;
+TTL toDateTime(occurred_at) + INTERVAL 7 DAY;   -- تحويل إلى DateTime
 
+-- Materialized view يعتمد على base_events (يجب أن يكون بعد إنشاء base_events)
 CREATE MATERIALIZED VIEW IF NOT EXISTS events.mv_events_by_type
 TO events.events_by_type
 AS SELECT
@@ -75,9 +58,7 @@ AS SELECT
     trace_id
 FROM events.base_events;
 
--- ── Materialized View: Hourly Stats ───────────────────────────────────────
--- لـ Grafana dashboards — aggregated per hour
--- SummingMergeTree يجمع القيم — نخزن total وcount ونحسب avg في الـ query
+-- جدول hourly_stats
 CREATE TABLE IF NOT EXISTS events.hourly_stats
 (
     hour                DateTime,
@@ -92,7 +73,7 @@ PARTITION BY toYYYYMM(hour)
 ORDER BY (hour, tenant_id, event_type, source)
 TTL hour + INTERVAL 30 DAY;
 
--- avg_payload_bytes = total_payload_bytes / event_count في الـ query
+-- Materialized view لـ hourly_stats
 CREATE MATERIALIZED VIEW IF NOT EXISTS events.mv_hourly_stats
 TO events.hourly_stats
 AS SELECT
@@ -104,7 +85,3 @@ AS SELECT
     sum(payload_bytes)   AS total_payload_bytes
 FROM events.base_events
 GROUP BY hour, tenant_id, event_type, source;
-
--- ── Platform User (least privilege) ───────────────────────────────────────
-CREATE USER IF NOT EXISTS platform IDENTIFIED BY 'platform';
-GRANT INSERT, SELECT ON events.* TO platform;
