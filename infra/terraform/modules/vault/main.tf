@@ -10,6 +10,19 @@ variable "kms_key_id" {
   type = string
 }
 
+variable "oidc_provider_arn" {
+  type = string
+}
+
+variable "oidc_provider_url" {
+  type = string
+}
+
+variable "namespace" {
+  type    = string
+  default = "platform"
+}
+
 resource "aws_iam_role" "vault" {
   name = "${var.cluster_name}-vault"
   assume_role_policy = jsonencode({
@@ -55,7 +68,6 @@ resource "aws_s3_bucket_versioning" "vault" {
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "vault" {
   bucket = aws_s3_bucket.vault.id
-
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm     = "aws:kms"
@@ -85,30 +97,8 @@ resource "aws_iam_role_policy" "vault_s3" {
   })
 }
 
-output "vault_role_arn" {
-  value = aws_iam_role.vault.arn
-}
-
-output "vault_storage_bucket" {
-  value = aws_s3_bucket.vault.bucket
-}
-variable "oidc_provider_arn" {
-  type = string
-}
-
-variable "oidc_provider_url" {
-  type = string
-}
-
-variable "namespace" {
-  type    = string
-  default = "platform"
-}
-
-# IRSA role for Vault
 resource "aws_iam_role" "vault_irsa" {
   name = "${var.cluster_name}-vault-irsa"
-
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -125,7 +115,6 @@ resource "aws_iam_role" "vault_irsa" {
       }
     }]
   })
-
   tags = { Environment = var.environment }
 }
 
@@ -134,7 +123,51 @@ resource "aws_iam_role_policy_attachment" "vault_irsa_kms" {
   policy_arn = aws_iam_role_policy.vault_kms.id
 }
 
-# Vault Helm chart
+resource "aws_iam_role" "eso" {
+  name = "${var.cluster_name}-eso"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Federated = var.oidc_provider_arn
+      }
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = {
+          "${var.oidc_provider_url}:sub" = "system:serviceaccount:external-secrets:external-secrets"
+          "${var.oidc_provider_url}:aud" = "sts.amazonaws.com"
+        }
+      }
+    }]
+  })
+  tags = { Environment = var.environment }
+}
+
+resource "aws_iam_role_policy" "eso_secrets" {
+  name = "eso-secrets-manager"
+  role = aws_iam_role.eso.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:ListSecretVersionIds",
+        ]
+        Resource = "arn:aws:secretsmanager:*:*:secret:platform/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = "secretsmanager:ListSecrets"
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 resource "helm_release" "vault" {
   name             = "vault"
   repository       = "https://helm.releases.hashicorp.com"
@@ -159,7 +192,7 @@ resource "helm_release" "vault" {
           }
         }
         extraEnvironmentVars = {
-          VAULT_SEAL_TYPE       = "awskms"
+          VAULT_SEAL_TYPE          = "awskms"
           VAULT_AWSKMS_SEAL_KEY_ID = var.kms_key_id
         }
         storage = {
@@ -178,6 +211,18 @@ resource "helm_release" "vault" {
   depends_on = [aws_iam_role.vault_irsa]
 }
 
+output "vault_role_arn" {
+  value = aws_iam_role.vault.arn
+}
+
+output "vault_storage_bucket" {
+  value = aws_s3_bucket.vault.bucket
+}
+
 output "vault_irsa_role_arn" {
   value = aws_iam_role.vault_irsa.arn
+}
+
+output "eso_role_arn" {
+  value = aws_iam_role.eso.arn
 }
