@@ -47,7 +47,7 @@ module "cluster" {
   subnet_ids   = module.vpc.private_subnet_ids
 }
 
-# تم تعديل هذا الموديول ليحتوي على جميع المتغيرات المطلوبة
+# السطر 66: بداية موديول vault
 module "vault" {
   source            = "../../modules/vault"
   cluster_name      = var.cluster_name
