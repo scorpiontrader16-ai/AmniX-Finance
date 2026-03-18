@@ -1,0 +1,46 @@
+# infra/redpanda-shadow-indexing.yaml
+#
+# Redpanda Shadow Indexing — Tiered Storage على MinIO
+# يخلي Redpanda يحرك الـ log segments القديمة تلقائياً لـ S3
+#
+# الاستخدام:
+#   docker compose -f docker-compose.yml exec redpanda \
+#     rpk cluster config import -f /etc/redpanda/shadow-indexing.yaml
+#
+# أو عبر الـ Admin API:
+#   curl -X PUT http://localhost:9644/v1/config \
+#     -H 'Content-Type: application/json' \
+#     -d @infra/redpanda-shadow-indexing-api.json
+
+# ── Cloud Storage Settings ─────────────────────────────────────────────────
+cloud_storage_enabled: true
+cloud_storage_region: us-east-1               # مش مهم للـ MinIO بس لازم يكون موجود
+
+# MinIO endpoint
+cloud_storage_api_endpoint: "minio"           # اسم الـ service في docker-compose
+cloud_storage_api_endpoint_port: 9000
+
+# Credentials
+cloud_storage_access_key: "minioadmin"
+cloud_storage_secret_key: "minioadmin123"
+
+# Bucket اللي هيخزن فيه الـ Redpanda segments
+cloud_storage_bucket: "redpanda-tiered"
+
+# ── Tiering Behavior ──────────────────────────────────────────────────────
+# يبدأ يحرك الـ segments بعد 12 ساعة
+cloud_storage_segment_max_upload_interval_sec: 43200
+
+# الاحتفاظ بـ local cache بحجم 10GB
+cloud_storage_cache_size: 10737418240
+
+# عدد الـ threads للـ upload/download
+cloud_storage_upload_ctrl_p_coeff: 4
+
+# ── Per-Topic Configuration ───────────────────────────────────────────────
+# يتطبق على الـ topics الجديدة — للـ topics الموجودة استخدم rpk topic alter
+topic_defaults:
+  # احتفظ بـ local copy لمدة 7 أيام
+  retention_local_target_ms: 604800000        # 7 أيام بالـ milliseconds
+  # احتفظ بـ remote copy لمدة 365 يوم
+  retention_ms: 31536000000                   # 365 يوم بالـ milliseconds
