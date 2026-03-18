@@ -1,0 +1,12 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: processing
+  namespace: platform
+  labels:
+    app: processing
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: processing
