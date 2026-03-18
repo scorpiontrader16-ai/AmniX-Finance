@@ -1,8 +1,9 @@
-module github.com/your-org/platform/services/ingestion
+module github.com/aminpola2001-ctrl/youtuop/services/ingestion
 
 go 1.22
 
 require (
+	github.com/ClickHouse/clickhouse-go/v2 v2.23.2
 	github.com/prometheus/client_golang v1.19.0
 	github.com/sony/gobreaker v0.5.0
 	github.com/twmb/franz-go v1.16.1
