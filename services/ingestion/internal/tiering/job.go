@@ -87,16 +87,14 @@ func (j *Job) runOnce(ctx context.Context) error {
 
 	j.logger.Info("tiering run started", "older_than", olderThan)
 
-	// ✅ أولاً: أكمل أي records عالقة من runs سابقة
+	// recover records that have parquet_key but missing archived_at
 	if err := j.pg.RecoverPendingArchive(ctx); err != nil {
 		j.logger.Error("recover pending archive failed", "error", err)
-		// لا نوقف — نكمل الـ run الطبيعي
 	}
 
 	totalMoved := 0
 
 	for {
-		// 1. جيب batch — يتجاهل اللي عنده parquet_key أو archived_at
 		events, err := j.pg.GetUnarchived(ctx, olderThan, j.cfg.BatchSize)
 		if err != nil {
 			return fmt.Errorf("get unarchived events: %w", err)
@@ -105,10 +103,8 @@ func (j *Job) runOnce(ctx context.Context) error {
 			break
 		}
 
-		// 2. حوّل لـ Parquet records
 		records := toParquetRecords(events)
 
-		// 3. اكتب Parquet file في S3
 		key, err := j.cold.WriteParquet(ctx, records)
 		if err != nil {
 			return fmt.Errorf("write parquet: %w", err)
@@ -119,14 +115,13 @@ func (j *Job) runOnce(ctx context.Context) error {
 			eventIDs[i] = e.EventID
 		}
 
-		// 4. ✅ سجّل الـ parquet_key أولاً — نقطة الأمان
+		// record parquet key before marking archived — idempotency guarantee
 		if err := j.pg.RecordParquetKey(ctx, eventIDs, key); err != nil {
 			return fmt.Errorf("record parquet key (key=%s): %w", key, err)
 		}
 
-		// 5. حدّث archived_at
+		// mark archived — if this fails, RecoverPendingArchive fixes it next run
 		if err := j.pg.MarkArchived(ctx, eventIDs); err != nil {
-			// RecoverPendingArchive سيصلح هذا في الـ run القادم
 			j.logger.Error("mark archived failed — recovery will fix on next run",
 				"key",   key,
 				"count", len(eventIDs),
@@ -173,18 +168,3 @@ func toParquetRecords(events []postgres.WarmEvent) []coldstore.EventRecord {
 	}
 	return records
 }
-```
-
----
-
-## ملخص الـ Flow النهائي
-```
-RecoverPendingArchive()     ← يصلح العالقين من runs سابقة
-        ↓
-GetUnarchived()             ← parquet_key IS NULL AND archived_at IS NULL
-        ↓
-WriteParquet() → S3
-        ↓
-RecordParquetKey()          ← نقطة الأمان ✅
-        ↓
-MarkArchived()              ← لو فشل → RecoverPendingArchive يصلحه
