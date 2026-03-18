@@ -30,7 +30,10 @@ import (
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 
-	chwriter "github.com/aminpola2001-ctrl/youtuop/services/ingestion/internal/clickhouse"
+	chwriter  "github.com/aminpola2001-ctrl/youtuop/services/ingestion/internal/clickhouse"
+	"github.com/aminpola2001-ctrl/youtuop/services/ingestion/internal/coldstore"
+	"github.com/aminpola2001-ctrl/youtuop/services/ingestion/internal/postgres"
+	"github.com/aminpola2001-ctrl/youtuop/services/ingestion/internal/tiering"
 )
 
 var version = "dev"
@@ -134,37 +137,68 @@ func main() {
 	}()
 	otel.SetTracerProvider(tp)
 
-	// ── ClickHouse Buffered Writer ─────────────────────────────────────────
-	startupCtx, startupCancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer startupCancel()
-
+	// ── Shared logger (slog للـ internal packages) ────────────────────────
 	slogLogger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
 
+	startupCtx, startupCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer startupCancel()
+
+	// ── ClickHouse Buffered Writer (Hot) ──────────────────────────────────
 	chConn, err := chwriter.WaitForClickHouse(startupCtx, chwriter.ConfigFromEnv(), slogLogger)
 	if err != nil {
-		log.Warn("clickhouse unavailable — events will not be persisted to hot store",
-			zap.Error(err),
-		)
+		log.Warn("clickhouse unavailable — hot store disabled", zap.Error(err))
 	}
 
 	var bufWriter *chwriter.BufferedWriter
 	if chConn != nil {
-		// FIX: ترتيب الـ defer مهم — LIFO
-		// bufWriter.Close() لازم يتنفذ قبل chConn.Close()
-		// عشان الـ buffer يخلص الـ flush قبل ما الـ connection يتقفل
-		defer chConn.Close()              // ينفذ ثانياً
+		defer chConn.Close()
 		bufWriter = chwriter.NewBufferedWriter(chConn, chwriter.DefaultBufferConfig(), slogLogger)
-		defer bufWriter.Close()           // ينفذ أولاً
-		log.Info("clickhouse buffered writer ready")
+		defer bufWriter.Close()
+		log.Info("clickhouse hot store ready")
+	}
+
+	// ── Postgres (Warm) ───────────────────────────────────────────────────
+	pgClient, err := postgres.WaitForPostgres(startupCtx, postgres.ConfigFromEnv(), slogLogger)
+	if err != nil {
+		log.Warn("postgres unavailable — warm store disabled", zap.Error(err))
+	}
+
+	if pgClient != nil {
+		defer pgClient.Close()
+		// شغّل الـ migrations تلقائياً عند الـ startup
+		if migrateErr := pgClient.Migrate(startupCtx); migrateErr != nil {
+			log.Warn("postgres migrations failed", zap.Error(migrateErr))
+		} else {
+			log.Info("postgres warm store ready")
+		}
+	}
+
+	// ── Cold Store (S3/MinIO + Parquet) ───────────────────────────────────
+	coldWriter, err := coldstore.WaitForColdStore(startupCtx, coldstore.ConfigFromEnv(), slogLogger)
+	if err != nil {
+		log.Warn("coldstore unavailable — cold archival disabled", zap.Error(err))
+	} else {
+		log.Info("coldstore (minio) ready")
+	}
+
+	// ── Tiering Job (Warm → Cold) ─────────────────────────────────────────
+	// يشتغل بس لو الاتنين Postgres و ColdStore متاحين
+	tieringCtx, tieringCancel := context.WithCancel(context.Background())
+
+	if pgClient != nil && coldWriter != nil {
+		tj := tiering.New(pgClient, coldWriter, tiering.DefaultConfig(), slogLogger)
+		go tj.Run(tieringCtx)
+		log.Info("tiering job started (warm → cold)")
+	} else {
+		log.Warn("tiering job disabled — postgres or coldstore unavailable")
 	}
 
 	// ── Circuit Breakers ──────────────────────────────────────────────────
-	redpandaCB := newCircuitBreaker("redpanda", log)
-	processingCB := newCircuitBreaker("processing-grpc", log)
+	redpandaCB    := newCircuitBreaker("redpanda", log)
+	processingCB  := newCircuitBreaker("processing-grpc", log)
 
-	// Rate limiter: 1000 req/s with burst of 100
 	limiter := rate.NewLimiter(1000, 100)
 
 	// ── gRPC Server ───────────────────────────────────────────────────────
@@ -206,8 +240,8 @@ func main() {
 		}
 
 		checks := []check{
-			{"redpanda", cfg.RedpandaBrokers, redpandaCB},
-			{"processing-grpc", cfg.ProcessingAddr, processingCB},
+			{"redpanda",        cfg.RedpandaBrokers, redpandaCB},
+			{"processing-grpc", cfg.ProcessingAddr,  processingCB},
 		}
 
 		for _, c := range checks {
@@ -216,16 +250,12 @@ func main() {
 			})
 			if cbErr != nil {
 				if cbErr == gobreaker.ErrOpenState {
-					http.Error(w,
-						fmt.Sprintf("%s: upstream not reachable", c.name),
-						http.StatusServiceUnavailable,
-					)
+					http.Error(w, fmt.Sprintf("%s: upstream not reachable", c.name),
+						http.StatusServiceUnavailable)
 					return
 				}
-				http.Error(w,
-					fmt.Sprintf("%s not ready: %v", c.name, cbErr),
-					http.StatusServiceUnavailable,
-				)
+				http.Error(w, fmt.Sprintf("%s not ready: %v", c.name, cbErr),
+					http.StatusServiceUnavailable)
 				return
 			}
 		}
@@ -239,7 +269,8 @@ func main() {
 		start := time.Now()
 		const path = "/v1/events"
 		defer func() {
-			httpRequestDuration.WithLabelValues(r.Method, path).Observe(time.Since(start).Seconds())
+			httpRequestDuration.WithLabelValues(r.Method, path).
+				Observe(time.Since(start).Seconds())
 		}()
 
 		if r.Method != http.MethodPost {
@@ -258,9 +289,8 @@ func main() {
 		eventID := fmt.Sprintf("evt-%d", time.Now().UnixNano())
 		now := time.Now().UTC()
 
-		// كتابة في ClickHouse (non-blocking via buffer)
+		// ── كتابة في ClickHouse (Hot — non-blocking) ─────────────────────
 		if bufWriter != nil {
-			// FIX: r.ContentLength بيكون -1 لو الـ header مش موجود
 			var payloadBytes uint32
 			if r.ContentLength > 0 {
 				payloadBytes = uint32(r.ContentLength)
@@ -330,6 +360,10 @@ func main() {
 	<-quit
 
 	log.Info("shutting down gracefully...")
+
+	// أوقف الـ tiering job أولاً
+	tieringCancel()
+
 	shutCtx, shutCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutCancel()
 
@@ -338,6 +372,7 @@ func main() {
 	if shutErr := httpServer.Shutdown(shutCtx); shutErr != nil {
 		log.Error("HTTP shutdown error", zap.Error(shutErr))
 	}
+
 	log.Info("shutdown complete")
 }
 
