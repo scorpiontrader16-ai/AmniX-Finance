@@ -27,7 +27,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ── Install k6 ────────────────────────────────────────────────
       - name: Install k6
         run: |
           sudo gpg --no-default-keyring \
@@ -41,38 +40,11 @@ jobs:
           sudo apt-get install -y k6
           k6 version
 
-      # ── Setup cluster access (إذا توفر kubeconfig) ───────────────
-      - name: Configure kubeconfig
-        if: ${{ secrets.KUBECONFIG_B64 != '' }}
+      - name: Set URLs
         run: |
-          mkdir -p $HOME/.kube
-          echo "${{ secrets.KUBECONFIG_B64 }}" | base64 -d > $HOME/.kube/config
-          chmod 600 $HOME/.kube/config
+          echo "INGESTION_URL=${{ github.event.inputs.ingestion_url }}"   >> $GITHUB_ENV
+          echo "PROCESSING_URL=${{ github.event.inputs.processing_url }}" >> $GITHUB_ENV
 
-      - name: Install kubectl
-        if: ${{ secrets.KUBECONFIG_B64 != '' }}
-        uses: azure/setup-kubectl@v4
-        with:
-          version: 'v1.29.0'
-
-      # ── Port-forward إذا كان عندنا cluster ────────────────────────
-      - name: Port-forward services
-        if: ${{ secrets.KUBECONFIG_B64 != '' }}
-        run: |
-          kubectl port-forward svc/ingestion-stable  8080:8080 -n platform &
-          kubectl port-forward svc/processing-stable 50051:50051 -n platform &
-          echo "INGESTION_URL=http://localhost:8080"   >> $GITHUB_ENV
-          echo "PROCESSING_URL=http://localhost:50051" >> $GITHUB_ENV
-          sleep 5
-
-      # ── إذا مفيش cluster — استخدم الـ URLs من الـ input ──────────
-      - name: Set URLs from input
-        if: ${{ secrets.KUBECONFIG_B64 == '' }}
-        run: |
-          echo "INGESTION_URL=${{ github.event.inputs.ingestion_url || 'http://ingestion-stable.platform.svc.cluster.local:8080' }}"   >> $GITHUB_ENV
-          echo "PROCESSING_URL=${{ github.event.inputs.processing_url || 'http://processing-stable.platform.svc.cluster.local:50051' }}" >> $GITHUB_ENV
-
-      # ── Smoke (دايماً يشتغل أول) ──────────────────────────────────
       - name: Run smoke test
         run: |
           mkdir -p results
@@ -83,11 +55,8 @@ jobs:
             --out json=results/smoke.json \
             scripts/load-tests/ingestion.js
 
-      # ── Load / Stress (حسب الاختيار) ─────────────────────────────
       - name: Run selected scenario
-        if: >
-          github.event.inputs.scenario != '' &&
-          github.event.inputs.scenario != 'smoke'
+        if: github.event.inputs.scenario != 'smoke'
         run: |
           SCENARIO="${{ github.event.inputs.scenario }}"
           k6 run \
@@ -97,7 +66,6 @@ jobs:
             --out json=results/${SCENARIO}.json \
             scripts/load-tests/ingestion.js
 
-      # ── Upload results ─────────────────────────────────────────────
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
@@ -106,7 +74,6 @@ jobs:
           path: results/
           retention-days: 30
 
-      # ── Summary ────────────────────────────────────────────────────
       - name: Job summary
         if: always()
         run: |
@@ -115,9 +82,9 @@ jobs:
             echo "## k6 Load Test Results"
             echo "| Key | Value |"
             echo "|-----|-------|"
-            echo "| Scenario     | \`${SCENARIO}\` |"
-            echo "| Ingestion    | \`${{ env.INGESTION_URL }}\` |"
-            echo "| Processing   | \`${{ env.PROCESSING_URL }}\` |"
-            echo "| Commit       | \`${{ github.sha }}\` |"
-            echo "| Run ID       | \`${{ github.run_id }}\` |"
+            echo "| Scenario   | \`${SCENARIO}\` |"
+            echo "| Ingestion  | \`${{ env.INGESTION_URL }}\` |"
+            echo "| Processing | \`${{ env.PROCESSING_URL }}\` |"
+            echo "| Commit     | \`${{ github.sha }}\` |"
+            echo "| Run ID     | \`${{ github.run_id }}\` |"
           } >> $GITHUB_STEP_SUMMARY
