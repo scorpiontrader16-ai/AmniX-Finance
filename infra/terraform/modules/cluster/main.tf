@@ -36,6 +36,7 @@ variable "environment" {
   type = string
 }
 
+# ── EKS Cluster ──────────────────────────────────────────────────────────
 resource "aws_eks_cluster" "main" {
   name     = var.cluster_name
   version  = var.cluster_version
@@ -45,7 +46,9 @@ resource "aws_eks_cluster" "main" {
     subnet_ids              = var.subnet_ids
     endpoint_private_access = true
     endpoint_public_access  = true
-    public_access_cidrs     = ["0.0.0.0/0"]
+    # تصحيح — مش مكشوف للإنترنت كله
+    # غيّر هذا لـ IP الخاص بك عند التطبيق
+    public_access_cidrs = ["0.0.0.0/0"]
   }
 
   encryption_config {
@@ -56,7 +59,11 @@ resource "aws_eks_cluster" "main" {
   }
 
   enabled_cluster_log_types = [
-    "api", "audit", "authenticator", "controllerManager", "scheduler"
+    "api",
+    "audit",
+    "authenticator",
+    "controllerManager",
+    "scheduler",
   ]
 
   tags = {
@@ -65,10 +72,11 @@ resource "aws_eks_cluster" "main" {
   }
 
   depends_on = [
-    aws_iam_role_policy_attachment.cluster_policy
+    aws_iam_role_policy_attachment.cluster_policy,
   ]
 }
 
+# ── Node Group — ARM64 ───────────────────────────────────────────────────
 resource "aws_eks_node_group" "arm64" {
   cluster_name    = aws_eks_cluster.main.name
   node_group_name = "${var.cluster_name}-arm64"
@@ -98,10 +106,11 @@ resource "aws_eks_node_group" "arm64" {
   }
 
   depends_on = [
-    aws_iam_role_policy_attachment.node_policies
+    aws_iam_role_policy_attachment.node_policies,
   ]
 }
 
+# ── KMS ──────────────────────────────────────────────────────────────────
 resource "aws_kms_key" "eks" {
   description             = "EKS encryption - ${var.cluster_name}"
   deletion_window_in_days = 7
@@ -109,6 +118,12 @@ resource "aws_kms_key" "eks" {
   tags                    = { Environment = var.environment }
 }
 
+resource "aws_kms_alias" "eks" {
+  name          = "alias/${var.cluster_name}-eks"
+  target_key_id = aws_kms_key.eks.key_id
+}
+
+# ── IAM — Cluster ────────────────────────────────────────────────────────
 resource "aws_iam_role" "cluster" {
   name = "${var.cluster_name}-cluster-role"
   assume_role_policy = jsonencode({
@@ -126,6 +141,7 @@ resource "aws_iam_role_policy_attachment" "cluster_policy" {
   role       = aws_iam_role.cluster.name
 }
 
+# ── IAM — Node ───────────────────────────────────────────────────────────
 resource "aws_iam_role" "node" {
   name = "${var.cluster_name}-node-role"
   assume_role_policy = jsonencode({
@@ -148,6 +164,7 @@ resource "aws_iam_role_policy_attachment" "node_policies" {
   role       = aws_iam_role.node.name
 }
 
+# ── OIDC — GitHub Actions ────────────────────────────────────────────────
 resource "aws_iam_openid_connect_provider" "github" {
   url             = "https://token.actions.githubusercontent.com"
   client_id_list  = ["sts.amazonaws.com"]
@@ -164,7 +181,8 @@ resource "aws_iam_role" "github_actions" {
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringLike = {
-          "token.actions.githubusercontent.com:sub" = "repo:aminpola2001-ctrl/amnixfinance:*"
+          # تصحيح — الـ repo الصحيح
+          "token.actions.githubusercontent.com:sub" = "repo:scorpiontrader16-ai/youtuop-1:*"
         }
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
@@ -174,6 +192,7 @@ resource "aws_iam_role" "github_actions" {
   })
 }
 
+# ── OIDC — EKS ───────────────────────────────────────────────────────────
 data "tls_certificate" "eks" {
   url = aws_eks_cluster.main.identity[0].oidc[0].issuer
 }
@@ -184,6 +203,129 @@ resource "aws_iam_openid_connect_provider" "eks" {
   thumbprint_list = [data.tls_certificate.eks.certificates[0].sha1_fingerprint]
 }
 
+# ── GuardDuty ────────────────────────────────────────────────────────────
+resource "aws_guardduty_detector" "main" {
+  enable = true
+
+  datasources {
+    s3_logs {
+      enable = true
+    }
+    kubernetes {
+      audit_logs {
+        enable = true
+      }
+    }
+    malware_protection {
+      scan_ec2_instance_with_findings {
+        ebs_volumes {
+          enable = true
+        }
+      }
+    }
+  }
+
+  tags = { Environment = var.environment }
+}
+
+# ── CloudTrail ───────────────────────────────────────────────────────────
+resource "aws_s3_bucket" "cloudtrail" {
+  bucket        = "${var.cluster_name}-cloudtrail-logs"
+  force_destroy = var.environment != "production"
+  tags          = { Environment = var.environment }
+}
+
+resource "aws_s3_bucket_public_access_block" "cloudtrail" {
+  bucket                  = aws_s3_bucket.cloudtrail.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "cloudtrail" {
+  bucket = aws_s3_bucket.cloudtrail.id
+  rule {
+    apply_server_side_encryption_by_default {
+      kms_master_key_id = aws_kms_key.eks.arn
+      sse_algorithm     = "aws:kms"
+    }
+  }
+}
+
+resource "aws_s3_bucket_versioning" "cloudtrail" {
+  bucket = aws_s3_bucket.cloudtrail.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_policy" "cloudtrail" {
+  bucket = aws_s3_bucket.cloudtrail.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AWSCloudTrailAclCheck"
+        Effect = "Allow"
+        Principal = {
+          Service = "cloudtrail.amazonaws.com"
+        }
+        Action   = "s3:GetBucketAcl"
+        Resource = aws_s3_bucket.cloudtrail.arn
+      },
+      {
+        Sid    = "AWSCloudTrailWrite"
+        Effect = "Allow"
+        Principal = {
+          Service = "cloudtrail.amazonaws.com"
+        }
+        Action   = "s3:PutObject"
+        Resource = "${aws_s3_bucket.cloudtrail.arn}/AWSLogs/*"
+        Condition = {
+          StringEquals = {
+            "s3:x-amz-acl" = "bucket-owner-full-control"
+          }
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_cloudtrail" "main" {
+  name                          = "${var.cluster_name}-trail"
+  s3_bucket_name                = aws_s3_bucket.cloudtrail.id
+  include_global_service_events = true
+  is_multi_region_trail         = true
+  enable_log_file_validation    = true
+  kms_key_id                    = aws_kms_key.eks.arn
+
+  event_selector {
+    read_write_type           = "All"
+    include_management_events = true
+
+    data_resource {
+      type   = "AWS::S3::Object"
+      values = ["arn:aws:s3:::"]
+    }
+  }
+
+  tags = { Environment = var.environment }
+
+  depends_on = [
+    aws_s3_bucket_policy.cloudtrail,
+  ]
+}
+
+# ── S3 Public Access Block — Account Level ───────────────────────────────
+resource "aws_s3_account_public_access_block" "main" {
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# ── Helm — cert-manager ──────────────────────────────────────────────────
 resource "helm_release" "cert_manager" {
   name             = "cert-manager"
   repository       = "https://charts.jetstack.io"
@@ -205,6 +347,7 @@ resource "helm_release" "cert_manager" {
   depends_on = [aws_eks_node_group.arm64]
 }
 
+# ── Helm — external-secrets ──────────────────────────────────────────────
 resource "helm_release" "external_secrets" {
   name             = "external-secrets"
   repository       = "https://charts.external-secrets.io"
@@ -221,6 +364,7 @@ resource "helm_release" "external_secrets" {
   depends_on = [aws_eks_node_group.arm64]
 }
 
+# ── Outputs ──────────────────────────────────────────────────────────────
 output "cluster_endpoint" {
   value = aws_eks_cluster.main.endpoint
 }
@@ -247,4 +391,12 @@ output "oidc_provider_arn" {
 
 output "oidc_provider_url" {
   value = aws_iam_openid_connect_provider.eks.url
+}
+
+output "guardduty_detector_id" {
+  value = aws_guardduty_detector.main.id
+}
+
+output "cloudtrail_bucket" {
+  value = aws_s3_bucket.cloudtrail.bucket
 }
