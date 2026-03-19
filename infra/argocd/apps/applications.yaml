@@ -1,5 +1,4 @@
 ---
-# App of Apps — يدير كل التطبيقات من Git
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -23,81 +22,6 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ApplyOutOfSyncOnly=true
----
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: ingestion
-  namespace: argocd
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
-    targetRevision: main
-    path: k8s/overlays/production/ingestion
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: platform
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
-      - ServerSideApply=true
-  ignoreDifferences:
-    - group: apps
-      kind: Deployment
-      jsonPointers:
-        - /spec/replicas
----
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: processing
-  namespace: argocd
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
-    targetRevision: main
-    path: k8s/overlays/production/processing
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: platform
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
-      - ServerSideApply=true
-  ignoreDifferences:
-    - group: apps
-      kind: Deployment
-      jsonPointers:
-        - /spec/replicas
----
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: monitoring
-  namespace: argocd
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
-    targetRevision: main
-    path: k8s/base/monitoring
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: monitoring
-  syncPolicy:
-    automated:
-      prune: false
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -147,6 +71,113 @@ spec:
     repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
     targetRevision: main
     path: k8s/base/api-gateway
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: platform
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ingestion
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
+    targetRevision: main
+    path: k8s/overlays/production/ingestion
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: platform
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+  ignoreDifferences:
+    - group: argoproj.io
+      kind: Rollout
+      jsonPointers:
+        - /spec/replicas
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: processing
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
+    targetRevision: main
+    path: k8s/overlays/production/processing
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: platform
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+  ignoreDifferences:
+    - group: argoproj.io
+      kind: Rollout
+      jsonPointers:
+        - /spec/replicas
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
+    targetRevision: main
+    path: k8s/base/monitoring
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cross-region-sync
+  namespace: argocd
+  labels:
+    app.kubernetes.io/component: sync
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
+    targetRevision: main
+    path: k8s/base/sync
   destination:
     server: https://kubernetes.default.svc
     namespace: platform
