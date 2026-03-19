@@ -18,11 +18,6 @@ on:
         required: true
         default: 'http://processing-stable.platform.svc.cluster.local:50051'
 
-  push:
-    branches: [main]
-    paths:
-      - 'scripts/load-tests/**'
-
 jobs:
   load-test:
     name: k6 — ${{ github.event.inputs.scenario || 'smoke' }}
@@ -68,7 +63,7 @@ jobs:
           kubectl port-forward svc/processing-stable 50051:50051 -n platform &
           echo "INGESTION_URL=http://localhost:8080"   >> $GITHUB_ENV
           echo "PROCESSING_URL=http://localhost:50051" >> $GITHUB_ENV
-          sleep 5  # انتظر حتى يستقر الـ port-forward
+          sleep 5
 
       # ── إذا مفيش cluster — استخدم الـ URLs من الـ input ──────────
       - name: Set URLs from input
