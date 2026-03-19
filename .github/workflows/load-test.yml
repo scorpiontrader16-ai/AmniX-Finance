@@ -9,6 +9,14 @@ on:
         type: choice
         options: [smoke, load, stress]
         default: smoke
+      ingestion_url:
+        description: 'Ingestion service URL'
+        required: true
+        default: 'http://ingestion-stable.platform.svc.cluster.local:8080'
+      processing_url:
+        description: 'Processing service URL'
+        required: true
+        default: 'http://processing-stable.platform.svc.cluster.local:50051'
 
   push:
     branches: [main]
@@ -24,156 +32,75 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ── kubeconfig ────────────────────────────────────────────────
+      # ── Install k6 ────────────────────────────────────────────────
+      - name: Install k6
+        run: |
+          sudo gpg --no-default-keyring \
+            --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+            --keyserver hkp://keyserver.ubuntu.com:80 \
+            --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] \
+            https://dl.k6.io/deb stable main" \
+            | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update -q
+          sudo apt-get install -y k6
+          k6 version
+
+      # ── Setup cluster access (إذا توفر kubeconfig) ───────────────
       - name: Configure kubeconfig
+        if: ${{ secrets.KUBECONFIG_B64 != '' }}
         run: |
           mkdir -p $HOME/.kube
           echo "${{ secrets.KUBECONFIG_B64 }}" | base64 -d > $HOME/.kube/config
           chmod 600 $HOME/.kube/config
 
       - name: Install kubectl
+        if: ${{ secrets.KUBECONFIG_B64 != '' }}
         uses: azure/setup-kubectl@v4
         with:
           version: 'v1.29.0'
 
-      # ── Verify cluster access ─────────────────────────────────────
-      - name: Verify cluster connectivity
+      # ── Port-forward إذا كان عندنا cluster ────────────────────────
+      - name: Port-forward services
+        if: ${{ secrets.KUBECONFIG_B64 != '' }}
         run: |
-          kubectl cluster-info --request-timeout=10s
-          kubectl get ns platform
+          kubectl port-forward svc/ingestion-stable  8080:8080 -n platform &
+          kubectl port-forward svc/processing-stable 50051:50051 -n platform &
+          echo "INGESTION_URL=http://localhost:8080"   >> $GITHUB_ENV
+          echo "PROCESSING_URL=http://localhost:50051" >> $GITHUB_ENV
+          sleep 5  # انتظر حتى يستقر الـ port-forward
 
-      # ── Health check services قبل الـ test ────────────────────────
-      - name: Health check — ingestion
+      # ── إذا مفيش cluster — استخدم الـ URLs من الـ input ──────────
+      - name: Set URLs from input
+        if: ${{ secrets.KUBECONFIG_B64 == '' }}
         run: |
-          kubectl rollout status deployment/ingestion \
-            -n platform --timeout=60s
+          echo "INGESTION_URL=${{ github.event.inputs.ingestion_url || 'http://ingestion-stable.platform.svc.cluster.local:8080' }}"   >> $GITHUB_ENV
+          echo "PROCESSING_URL=${{ github.event.inputs.processing_url || 'http://processing-stable.platform.svc.cluster.local:50051' }}" >> $GITHUB_ENV
 
-      - name: Health check — processing
-        run: |
-          kubectl rollout status deployment/processing \
-            -n platform --timeout=60s
-
-      # ── Build k6 ConfigMap من الـ script ──────────────────────────
-      - name: Create k6 script ConfigMap
-        run: |
-          kubectl create configmap k6-load-script \
-            --from-file=ingestion.js=scripts/load-tests/ingestion.js \
-            -n platform \
-            --dry-run=client -o yaml | kubectl apply -f -
-
-      # ── Run k6 Job داخل الـ cluster ───────────────────────────────
-      - name: Run k6 Job in cluster
-        env:
-          SCENARIO: ${{ github.event.inputs.scenario || 'smoke' }}
-        run: |
-          SCENARIO="${SCENARIO}"
-
-          # حذف أي job سابق بنفس الاسم
-          kubectl delete job k6-load-test -n platform --ignore-not-found=true
-          kubectl wait --for=delete job/k6-load-test \
-            -n platform --timeout=30s 2>/dev/null || true
-
-          # إنشاء الـ Job
-          cat <<EOF | kubectl apply -f -
-          apiVersion: batch/v1
-          kind: Job
-          metadata:
-            name: k6-load-test
-            namespace: platform
-            labels:
-              app: k6-load-test
-              scenario: ${SCENARIO}
-          spec:
-            ttlSecondsAfterFinished: 300
-            backoffLimit: 0
-            template:
-              metadata:
-                labels:
-                  app: k6-load-test
-              spec:
-                restartPolicy: Never
-                containers:
-                  - name: k6
-                    image: grafana/k6:0.51.0
-                    command:
-                      - k6
-                      - run
-                      - --env
-                      - SCENARIO=${SCENARIO}
-                      - --env
-                      - INGESTION_URL=http://ingestion-stable.platform.svc.cluster.local:8080
-                      - --env
-                      - PROCESSING_URL=http://processing-stable.platform.svc.cluster.local:50051
-                      - --out
-                      - json=/results/${SCENARIO}.json
-                      - /scripts/ingestion.js
-                    volumeMounts:
-                      - name: k6-script
-                        mountPath: /scripts
-                      - name: results
-                        mountPath: /results
-                    resources:
-                      requests:
-                        cpu: 250m
-                        memory: 256Mi
-                      limits:
-                        cpu: 500m
-                        memory: 512Mi
-                volumes:
-                  - name: k6-script
-                    configMap:
-                      name: k6-load-script
-                  - name: results
-                    emptyDir: {}
-          EOF
-
-      # ── انتظار انتهاء الـ Job ──────────────────────────────────────
-      - name: Wait for k6 Job completion
-        run: |
-          SCENARIO="${{ github.event.inputs.scenario || 'smoke' }}"
-
-          # timeout حسب الـ scenario
-          case "$SCENARIO" in
-            smoke)  TIMEOUT=120  ;;
-            load)   TIMEOUT=600  ;;
-            stress) TIMEOUT=1200 ;;
-            *)      TIMEOUT=300  ;;
-          esac
-
-          echo "Waiting up to ${TIMEOUT}s for k6 job..."
-          kubectl wait job/k6-load-test \
-            -n platform \
-            --for=condition=complete \
-            --timeout=${TIMEOUT}s
-
-      # ── سحب الـ logs من الـ Job ────────────────────────────────────
-      - name: Collect k6 logs
-        if: always()
+      # ── Smoke (دايماً يشتغل أول) ──────────────────────────────────
+      - name: Run smoke test
         run: |
           mkdir -p results
-          POD=$(kubectl get pods -n platform \
-            -l app=k6-load-test \
-            --sort-by=.metadata.creationTimestamp \
-            -o jsonpath='{.items[-1].metadata.name}')
+          k6 run \
+            --env SCENARIO=smoke \
+            --env INGESTION_URL=${{ env.INGESTION_URL }} \
+            --env PROCESSING_URL=${{ env.PROCESSING_URL }} \
+            --out json=results/smoke.json \
+            scripts/load-tests/ingestion.js
 
-          if [ -n "$POD" ]; then
-            kubectl logs "$POD" -n platform | tee results/k6-output.txt
-          else
-            echo "No k6 pod found" | tee results/k6-output.txt
-          fi
-
-      # ── تحقق من نجاح الـ thresholds ───────────────────────────────
-      - name: Check threshold results
-        if: always()
+      # ── Load / Stress (حسب الاختيار) ─────────────────────────────
+      - name: Run selected scenario
+        if: >
+          github.event.inputs.scenario != '' &&
+          github.event.inputs.scenario != 'smoke'
         run: |
-          if grep -q "thresholds on metrics" results/k6-output.txt 2>/dev/null; then
-            if grep -q "✓" results/k6-output.txt; then
-              echo "✓ All thresholds passed"
-            else
-              echo "✗ Some thresholds failed"
-              exit 1
-            fi
-          fi
+          SCENARIO="${{ github.event.inputs.scenario }}"
+          k6 run \
+            --env SCENARIO=$SCENARIO \
+            --env INGESTION_URL=${{ env.INGESTION_URL }} \
+            --env PROCESSING_URL=${{ env.PROCESSING_URL }} \
+            --out json=results/${SCENARIO}.json \
+            scripts/load-tests/ingestion.js
 
       # ── Upload results ─────────────────────────────────────────────
       - name: Upload results
@@ -184,15 +111,6 @@ jobs:
           path: results/
           retention-days: 30
 
-      # ── Cleanup ────────────────────────────────────────────────────
-      - name: Cleanup k6 resources
-        if: always()
-        run: |
-          kubectl delete job k6-load-test \
-            -n platform --ignore-not-found=true
-          kubectl delete configmap k6-load-script \
-            -n platform --ignore-not-found=true
-
       # ── Summary ────────────────────────────────────────────────────
       - name: Job summary
         if: always()
@@ -202,8 +120,9 @@ jobs:
             echo "## k6 Load Test Results"
             echo "| Key | Value |"
             echo "|-----|-------|"
-            echo "| Scenario  | \`${SCENARIO}\` |"
-            echo "| Namespace | \`platform\` |"
-            echo "| Commit    | \`${{ github.sha }}\` |"
-            echo "| Run ID    | \`${{ github.run_id }}\` |"
+            echo "| Scenario     | \`${SCENARIO}\` |"
+            echo "| Ingestion    | \`${{ env.INGESTION_URL }}\` |"
+            echo "| Processing   | \`${{ env.PROCESSING_URL }}\` |"
+            echo "| Commit       | \`${{ github.sha }}\` |"
+            echo "| Run ID       | \`${{ github.run_id }}\` |"
           } >> $GITHUB_STEP_SUMMARY
