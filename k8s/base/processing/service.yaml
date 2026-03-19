@@ -6,7 +6,7 @@ metadata:
   labels:
     app: processing
 spec:
-  selector:
+  selector:           # ← كان مفقوداً — bug مؤكد
     app: processing
   ports:
     - name: grpc
@@ -25,6 +25,9 @@ metadata:
   name: processing-canary
   namespace: platform
   labels:
+    app: processing
+spec:
+  selector:           # ← كان مفقوداً — bug مؤكد
     app: processing
   ports:
     - name: grpc
