@@ -11,81 +11,86 @@ POSTGRES_DSN        ?= postgres://platform:platform@localhost:5432/platform?sslm
 
 # ─── Help ─────────────────────────────────────────────────
 .PHONY: help
-help: ## يعرض كل الـ targets المتاحة
+help: ## Show all available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 
 # ─── M1: Dev / Build / Test ───────────────────────────────
 .PHONY: dev build test proto
 
-dev: ## يشغّل كل الـ services محلياً
+dev: ## Start all services locally
 	docker compose up -d
 
-build: ## يبني كل الـ services
+build: ## Build all services
 	docker compose build
 
-test: ## يشغّل الـ unit tests
+test: ## Run unit tests
 	cd services/ingestion  && go test ./...
 	cd services/processing && cargo test
 
-proto: ## يولد الكود من الـ proto files (يحتاج buf)
+proto: ## Generate code from proto files (requires buf)
 	buf generate
 
 # ─── Schema Registry ──────────────────────────────────────
 .PHONY: schema-register schema-list
 
-schema-register: ## يسجل كل الـ proto schemas
+schema-register: ## Register all proto schemas
 	SCHEMA_REGISTRY_URL=$(SCHEMA_REGISTRY_URL) \
 	PROTO_DIR=$(PROTO_DIR) \
 	bash ./scripts/register-schemas.sh
 
-schema-list: ## يعرض كل الـ registered subjects
+schema-list: ## List all registered subjects
 	@curl -s $(SCHEMA_REGISTRY_URL)/subjects | jq .
 
-# ─── M4 Services ─────────────────────────────────────────
-.PHONY: m4-up m4-down m4-logs m4-status
+# ─── Services ─────────────────────────────────────────────
+.PHONY: up down logs status
 
-m4-up: ## يشغل M4 services كاملة (ClickHouse + MinIO)
-	docker compose -f docker-compose.yml -f infra/docker-compose.m4.yml up -d
-	@echo "⏳ Waiting for services to be healthy..."
+up: ## Start all services with migrations and schema registration
+	docker compose up -d
 	@sleep 10
 	@$(MAKE) db-migrate
 	@$(MAKE) schema-register
 	@echo ""
-	@echo "✅ M4 ready"
-	@echo "   ClickHouse : http://localhost:8123/play"
-	@echo "   MinIO      : http://localhost:9001"
-	@echo "   Redpanda   : http://localhost:8080"
+	@echo "Services ready:"
+	@echo "  ClickHouse : http://localhost:8123/play"
+	@echo "  MinIO      : http://localhost:9001"
+	@echo "  Redpanda   : http://localhost:8080"
+	@echo "  Grafana    : http://localhost:3000"
 
-m4-down: ## يوقف M4 services
-	docker compose -f docker-compose.yml -f infra/docker-compose.m4.yml down
+down: ## Stop all services
+	docker compose down
 
-m4-logs: ## يعرض logs الـ M4 services
-	docker compose -f docker-compose.yml -f infra/docker-compose.m4.yml \
-		logs -f clickhouse minio
+logs: ## Show logs for data services
+	docker compose logs -f clickhouse minio
 
-m4-status: ## يعرض حالة كل M4 services
+status: ## Show health status of all services
+	@echo "=== Redpanda ==="
+	@curl -sf http://localhost:9644/v1/cluster/health || echo " DOWN"
 	@echo "=== ClickHouse ==="
-	@curl -sf http://localhost:8123/ping && echo " ✅ UP" || echo " ❌ DOWN"
+	@curl -sf http://localhost:8123/ping && echo " UP" || echo " DOWN"
 	@echo "=== MinIO ==="
-	@curl -sf http://localhost:9000/minio/health/live && echo " ✅ UP" || echo " ❌ DOWN"
+	@curl -sf http://localhost:9000/minio/health/live && echo " UP" || echo " DOWN"
 	@echo "=== Schema Registry ==="
-	@curl -sf http://localhost:8081/subjects > /dev/null && echo " ✅ UP" || echo " ❌ DOWN"
+	@curl -sf http://localhost:8081/subjects > /dev/null && echo " UP" || echo " DOWN"
+	@echo "=== Postgres ==="
+	@pg_isready -h localhost -p 5432 -U platform && echo " UP" || echo " DOWN"
+	@echo "=== Grafana ==="
+	@curl -sf http://localhost:3000/api/health > /dev/null && echo " UP" || echo " DOWN"
 
 # ─── Database Migrations ──────────────────────────────────
 .PHONY: db-migrate db-migrate-down db-migrate-status
 
-db-migrate: ## يشغّل Postgres migrations
+db-migrate: ## Run Postgres migrations
 	GOOSE_MIGRATION_DIR=./services/ingestion/internal/postgres/migrations \
 	GOOSE_DBSTRING=$(POSTGRES_DSN) \
 	bash ./scripts/migrate.sh up
 
-db-migrate-down: ## يتراجع عن آخر migration
+db-migrate-down: ## Rollback last migration
 	GOOSE_MIGRATION_DIR=./services/ingestion/internal/postgres/migrations \
 	GOOSE_DBSTRING=$(POSTGRES_DSN) \
 	bash ./scripts/migrate.sh down
 
-db-migrate-status: ## يعرض حالة الـ migrations
+db-migrate-status: ## Show migrations status
 	GOOSE_MIGRATION_DIR=./services/ingestion/internal/postgres/migrations \
 	GOOSE_DBSTRING=$(POSTGRES_DSN) \
 	bash ./scripts/migrate.sh status
@@ -93,27 +98,27 @@ db-migrate-status: ## يعرض حالة الـ migrations
 # ─── Integration Tests ────────────────────────────────────
 .PHONY: test-schema test-clickhouse test-postgres test-integration
 
-test-schema: ## integration tests للـ schema registry
+test-schema: ## Integration tests for schema registry
 	SCHEMA_REGISTRY_URL=$(SCHEMA_REGISTRY_URL) \
 	go test -tags=integration -v -timeout=60s \
 		./services/ingestion/internal/schemaregistry/...
 
-test-clickhouse: ## integration tests للـ ClickHouse
+test-clickhouse: ## Integration tests for ClickHouse
 	go test -tags=integration -v -timeout=60s \
 		./services/ingestion/internal/clickhouse/...
 
-test-postgres: ## integration tests للـ Postgres
+test-postgres: ## Integration tests for Postgres
 	POSTGRES_DSN=$(POSTGRES_DSN) \
 	go test -tags=integration -v -timeout=60s \
 		./services/ingestion/internal/postgres/...
 
-test-integration: test-schema test-clickhouse test-postgres ## كل الـ integration tests
-	@echo "✅ All integration tests passed"
+test-integration: test-schema test-clickhouse test-postgres ## Run all integration tests
+	@echo "All integration tests passed"
 
 # ─── Tiering ─────────────────────────────────────────────
 .PHONY: tiering-run
 
-tiering-run: ## يشغّل tiering job يدوياً
+tiering-run: ## Run tiering job manually
 	cd services/ingestion && \
 	POSTGRES_HOST=localhost \
 	MINIO_ENDPOINT=localhost:9000 \
