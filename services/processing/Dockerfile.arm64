@@ -1,10 +1,10 @@
-FROM --platform=$BUILDPLATFORM rust:1.85-slim AS chef
+FROM --platform=$BUILDPLATFORM rust:1.86-slim AS chef
 RUN apt-get update && apt-get install -y \
     protobuf-compiler \
     pkg-config \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
-RUN cargo install cargo-chef --locked
+RUN cargo install cargo-chef
 WORKDIR /app
 
 FROM chef AS planner
