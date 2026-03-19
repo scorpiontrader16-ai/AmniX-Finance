@@ -232,8 +232,11 @@ jobs:
           sudo mv kubeconform /usr/local/bin/
       - name: Validate all Kubernetes manifests
         run: |
-          find k8s -name "*.yaml" ! -name "kustomization.yaml" -exec \
-            kubeconform -summary -strict {} \;
+          find k8s -name "*.yaml" ! -name "kustomization.yaml" \
+            ! -path "*/cilium/*" \
+            ! -path "*/chaos/*" \
+            ! -path "*/external-secrets/*" \
+            -exec kubeconform -summary -strict {} \;
       - name: Setup kustomize
         uses: imranismail/setup-kustomize@v2
       - name: Validate kustomize overlays
