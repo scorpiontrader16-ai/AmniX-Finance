@@ -5,6 +5,6 @@ resources:
   - networkpolicy.yaml
   - externalsecret.yaml
   - poddisruptionbudget.yaml
-  - deployment.yaml
+  - rollout.yaml
   - service.yaml
   - scaledobject.yaml
