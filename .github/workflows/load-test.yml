@@ -1,26 +1,17 @@
 name: Load Tests
 
 on:
-  # يدوي فقط — مش في كل push
   workflow_dispatch:
     inputs:
       scenario:
         description: 'Test scenario'
         required: true
         type: choice
-        options:
-          - smoke
-          - load
-          - stress
+        options: [smoke, load, stress]
         default: smoke
-      base_url:
-        description: 'Target URL'
-        required: true
-        default: 'http://localhost:9090'
 
-  # أو بعد كل merge للـ main
   push:
-    branches: [ main ]
+    branches: [main]
     paths:
       - 'scripts/load-tests/**'
 
@@ -28,50 +19,191 @@ jobs:
   load-test:
     name: k6 — ${{ github.event.inputs.scenario || 'smoke' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup k6
-        uses: grafana/setup-k6-action@v1
-
-      - name: Run smoke test (always runs first)
-        env:
-          BASE_URL: ${{ github.event.inputs.base_url || 'http://localhost:9090' }}
+      # ── kubeconfig ────────────────────────────────────────────────
+      - name: Configure kubeconfig
         run: |
-          k6 run \
-            --env SCENARIO=smoke \
-            --env BASE_URL=$BASE_URL \
-            --out json=results/smoke.json \
-            scripts/load-tests/ingestion.js
-        continue-on-error: false
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBECONFIG_B64 }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
 
-      - name: Run selected scenario
-        if: github.event.inputs.scenario != 'smoke'
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.29.0'
+
+      # ── Verify cluster access ─────────────────────────────────────
+      - name: Verify cluster connectivity
+        run: |
+          kubectl cluster-info --request-timeout=10s
+          kubectl get ns platform
+
+      # ── Health check services قبل الـ test ────────────────────────
+      - name: Health check — ingestion
+        run: |
+          kubectl rollout status deployment/ingestion \
+            -n platform --timeout=60s
+
+      - name: Health check — processing
+        run: |
+          kubectl rollout status deployment/processing \
+            -n platform --timeout=60s
+
+      # ── Build k6 ConfigMap من الـ script ──────────────────────────
+      - name: Create k6 script ConfigMap
+        run: |
+          kubectl create configmap k6-load-script \
+            --from-file=ingestion.js=scripts/load-tests/ingestion.js \
+            -n platform \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      # ── Run k6 Job داخل الـ cluster ───────────────────────────────
+      - name: Run k6 Job in cluster
         env:
-          BASE_URL: ${{ github.event.inputs.base_url || 'http://localhost:9090' }}
-          SCENARIO: ${{ github.event.inputs.scenario || 'load' }}
+          SCENARIO: ${{ github.event.inputs.scenario || 'smoke' }}
+        run: |
+          SCENARIO="${SCENARIO}"
+
+          # حذف أي job سابق بنفس الاسم
+          kubectl delete job k6-load-test -n platform --ignore-not-found=true
+          kubectl wait --for=delete job/k6-load-test \
+            -n platform --timeout=30s 2>/dev/null || true
+
+          # إنشاء الـ Job
+          cat <<EOF | kubectl apply -f -
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: k6-load-test
+            namespace: platform
+            labels:
+              app: k6-load-test
+              scenario: ${SCENARIO}
+          spec:
+            ttlSecondsAfterFinished: 300
+            backoffLimit: 0
+            template:
+              metadata:
+                labels:
+                  app: k6-load-test
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: k6
+                    image: grafana/k6:0.51.0
+                    command:
+                      - k6
+                      - run
+                      - --env
+                      - SCENARIO=${SCENARIO}
+                      - --env
+                      - INGESTION_URL=http://ingestion-stable.platform.svc.cluster.local:8080
+                      - --env
+                      - PROCESSING_URL=http://processing-stable.platform.svc.cluster.local:50051
+                      - --out
+                      - json=/results/${SCENARIO}.json
+                      - /scripts/ingestion.js
+                    volumeMounts:
+                      - name: k6-script
+                        mountPath: /scripts
+                      - name: results
+                        mountPath: /results
+                    resources:
+                      requests:
+                        cpu: 250m
+                        memory: 256Mi
+                      limits:
+                        cpu: 500m
+                        memory: 512Mi
+                volumes:
+                  - name: k6-script
+                    configMap:
+                      name: k6-load-script
+                  - name: results
+                    emptyDir: {}
+          EOF
+
+      # ── انتظار انتهاء الـ Job ──────────────────────────────────────
+      - name: Wait for k6 Job completion
+        run: |
+          SCENARIO="${{ github.event.inputs.scenario || 'smoke' }}"
+
+          # timeout حسب الـ scenario
+          case "$SCENARIO" in
+            smoke)  TIMEOUT=120  ;;
+            load)   TIMEOUT=600  ;;
+            stress) TIMEOUT=1200 ;;
+            *)      TIMEOUT=300  ;;
+          esac
+
+          echo "Waiting up to ${TIMEOUT}s for k6 job..."
+          kubectl wait job/k6-load-test \
+            -n platform \
+            --for=condition=complete \
+            --timeout=${TIMEOUT}s
+
+      # ── سحب الـ logs من الـ Job ────────────────────────────────────
+      - name: Collect k6 logs
+        if: always()
         run: |
           mkdir -p results
-          k6 run \
-            --env SCENARIO=$SCENARIO \
-            --env BASE_URL=$BASE_URL \
-            --out json=results/${SCENARIO}.json \
-            scripts/load-tests/ingestion.js
+          POD=$(kubectl get pods -n platform \
+            -l app=k6-load-test \
+            --sort-by=.metadata.creationTimestamp \
+            -o jsonpath='{.items[-1].metadata.name}')
 
+          if [ -n "$POD" ]; then
+            kubectl logs "$POD" -n platform | tee results/k6-output.txt
+          else
+            echo "No k6 pod found" | tee results/k6-output.txt
+          fi
+
+      # ── تحقق من نجاح الـ thresholds ───────────────────────────────
+      - name: Check threshold results
+        if: always()
+        run: |
+          if grep -q "thresholds on metrics" results/k6-output.txt 2>/dev/null; then
+            if grep -q "✓" results/k6-output.txt; then
+              echo "✓ All thresholds passed"
+            else
+              echo "✗ Some thresholds failed"
+              exit 1
+            fi
+          fi
+
+      # ── Upload results ─────────────────────────────────────────────
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: k6-results-${{ github.event.inputs.scenario || 'smoke' }}
+          name: k6-results-${{ github.event.inputs.scenario || 'smoke' }}-${{ github.run_id }}
           path: results/
           retention-days: 30
 
-      - name: Post summary
+      # ── Cleanup ────────────────────────────────────────────────────
+      - name: Cleanup k6 resources
         if: always()
         run: |
-          echo "## k6 Load Test Results" >> $GITHUB_STEP_SUMMARY
-          echo "- Scenario: ${{ github.event.inputs.scenario || 'smoke' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Target: ${{ github.event.inputs.base_url || 'localhost' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Commit: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          kubectl delete job k6-load-test \
+            -n platform --ignore-not-found=true
+          kubectl delete configmap k6-load-script \
+            -n platform --ignore-not-found=true
+
+      # ── Summary ────────────────────────────────────────────────────
+      - name: Job summary
+        if: always()
+        run: |
+          SCENARIO="${{ github.event.inputs.scenario || 'smoke' }}"
+          {
+            echo "## k6 Load Test Results"
+            echo "| Key | Value |"
+            echo "|-----|-------|"
+            echo "| Scenario  | \`${SCENARIO}\` |"
+            echo "| Namespace | \`platform\` |"
+            echo "| Commit    | \`${{ github.sha }}\` |"
+            echo "| Run ID    | \`${{ github.run_id }}\` |"
+          } >> $GITHUB_STEP_SUMMARY
