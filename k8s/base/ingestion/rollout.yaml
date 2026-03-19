@@ -1,5 +1,3 @@
-# k8s/base/ingestion/rollout.yaml
-# Argo Rollout — Ingestion Service (Canary Strategy)
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout
 metadata:
@@ -13,27 +11,20 @@ spec:
   selector:
     matchLabels:
       app: ingestion
-
   template:
     metadata:
       labels:
         app: ingestion
     spec:
       serviceAccountName: ingestion
-
-      # ── ARM64 — إجباري ──────────────────────────────────────────
       nodeSelector:
         kubernetes.io/arch: arm64
-
-      # ── Security Context ────────────────────────────────────────
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
         fsGroup: 1000
-
       containers:
         - name: ingestion
-          # ARM64 image — linux/arm64
           image: ghcr.io/scorpiontrader16-ai/youtuop-1/ingestion:latest
           ports:
             - name: grpc
@@ -49,8 +40,6 @@ spec:
               value: "9090"
             - name: REDPANDA_BROKERS
               value: redpanda:9092
-            - name: PROCESSING_ADDR
-              value: processing:50051
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: otel-collector:4317
           envFrom:
@@ -82,8 +71,6 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
-
-  # ── Canary Strategy ──────────────────────────────────────────────────
   strategy:
     canary:
       canaryService: ingestion-canary
