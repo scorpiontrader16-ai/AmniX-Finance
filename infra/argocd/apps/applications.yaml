@@ -1,40 +1,17 @@
 ---
-# App of Apps — يدير كل التطبيقات من Git
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: platform-apps
+  name: api-gateway
   namespace: argocd
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/component: api-gateway
 spec:
   project: default
   source:
     repoURL: https://github.com/aminpola2001-ctrl/amnixfinance.git
     targetRevision: main
-    path: infra/argocd/apps
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: argocd
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
-      - ApplyOutOfSyncOnly=true
----
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: ingestion
-  namespace: argocd
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/aminpola2001-ctrl/amnixfinance.git
-    targetRevision: main
-    path: k8s/overlays/production/ingestion
+    path: k8s/base/api-gateway
   destination:
     server: https://kubernetes.default.svc
     namespace: platform
@@ -45,56 +22,3 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
-  ignoreDifferences:
-    - group: apps
-      kind: Deployment
-      jsonPointers:
-        - /spec/replicas
----
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: processing
-  namespace: argocd
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/aminpola2001-ctrl/amnixfinance.git
-    targetRevision: main
-    path: k8s/overlays/production/processing
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: platform
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
-      - ServerSideApply=true
-  ignoreDifferences:
-    - group: apps
-      kind: Deployment
-      jsonPointers:
-        - /spec/replicas
----
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: monitoring
-  namespace: argocd
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/aminpola2001-ctrl/amnixfinance.git
-    targetRevision: main
-    path: k8s/base/monitoring
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: monitoring
-  syncPolicy:
-    automated:
-      prune: false
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
