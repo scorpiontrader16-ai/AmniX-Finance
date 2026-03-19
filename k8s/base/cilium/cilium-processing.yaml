@@ -1,6 +1,4 @@
-# k8s/base/cilium/cilium-processing.yaml
-# Cilium L7 Network Policy — Processing Service (Rust Engine)
-apiVersion: "cilium.io/v2"
+apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
   name: processing-l7
@@ -9,23 +7,7 @@ spec:
   endpointSelector:
     matchLabels:
       app: processing
-
-  # ── Ingress Rules ───────────────────────────────────────────────────────
   ingress:
-    # gRPC من ingestion فقط — L7 method enforcement
-    - fromEndpoints:
-        - matchLabels:
-            app: ingestion
-      toPorts:
-        - ports:
-            - port: "50051"
-              protocol: TCP
-          rules:
-            http:
-              - method: "POST"
-                path: "/processing.v1.ProcessingEngineService/.*"
-
-    # gRPC من hydration service — warm-up calls
     - fromEndpoints:
         - matchLabels:
             app: hydration
@@ -37,8 +19,13 @@ spec:
             http:
               - method: "POST"
                 path: "/processing.v1.ProcessingEngineService/.*"
-
-    # Metrics من Prometheus
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: envoy-gateway-system
+      toPorts:
+        - ports:
+            - port: "50051"
+              protocol: TCP
     - fromEndpoints:
         - matchLabels:
             app: prometheus
@@ -50,14 +37,9 @@ spec:
             http:
               - method: "GET"
                 path: "/metrics"
-
-    # Health checks
     - fromEntities:
         - health
-
-  # ── Egress Rules ────────────────────────────────────────────────────────
   egress:
-    # Redpanda consumer
     - toEndpoints:
         - matchLabels:
             app: redpanda
@@ -65,8 +47,6 @@ spec:
         - ports:
             - port: "9092"
               protocol: TCP
-
-    # OTel Collector
     - toEndpoints:
         - matchLabels:
             app: otel-collector
@@ -74,8 +54,6 @@ spec:
         - ports:
             - port: "4317"
               protocol: TCP
-
-    # DNS
     - toEndpoints:
         - matchLabels:
             k8s-app: kube-dns
