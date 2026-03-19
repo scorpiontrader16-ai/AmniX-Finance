@@ -3,10 +3,11 @@ ARG TARGETOS=linux
 ARG TARGETARCH=arm64
 ARG BUILD_VERSION=dev
 WORKDIR /app
-COPY go.mod ./
+COPY go.mod go.sum ./
 RUN go mod download && go mod verify
 COPY . .
-RUN CGO_ENABLED=0 \
+RUN go mod tidy && \
+    CGO_ENABLED=0 \
     GOOS=${TARGETOS} \
     GOARCH=${TARGETARCH} \
     go build \
@@ -14,6 +15,7 @@ RUN CGO_ENABLED=0 \
     -trimpath \
     -o /bin/server \
     ./cmd/server
+
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=builder /bin/server /server
 LABEL org.opencontainers.image.title="ingestion-service"
