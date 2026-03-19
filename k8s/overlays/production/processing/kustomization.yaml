@@ -17,3 +17,17 @@ patches:
       - op: replace
         path: /spec/template/spec/containers/0/resources/limits/memory
         value: "4Gi"
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: "ghcr.io/scorpiontrader16-ai/youtuop-1/processing:latest"
+      - op: add
+        path: /spec/template/spec/nodeSelector
+        value:
+          kubernetes.io/arch: arm64
+      - op: add
+        path: /spec/template/spec/tolerations
+        value:
+          - key: "kubernetes.io/arch"
+            operator: "Equal"
+            value: "arm64"
+            effect: "NoSchedule"
