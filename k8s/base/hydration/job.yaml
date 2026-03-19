@@ -1,0 +1,60 @@
+# k8s/base/hydration/job.yaml
+# Hydration Job — يشتغل قبل الـ Rollout traffic
+# بيتشغّل كـ PreSync hook في ArgoCD
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hydration
+  namespace: platform
+  annotations:
+    # ArgoCD: يشتغل قبل sync ويحذف نفسه بعد نجاحه
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+  labels:
+    app: hydration
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 2
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app: hydration
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: hydration
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: hydration
+          image: ghcr.io/aminpola2001-ctrl/youtuop/hydration:latest
+          env:
+            - name: PROCESSING_ADDR
+              value: "processing-stable:50051"
+            - name: WARMUP_REQUESTS
+              value: "50"
+            - name: CONCURRENT_CALLS
+              value: "5"
+            - name: WARMUP_TIMEOUT_SEC
+              value: "30"
+            - name: READY_TIMEOUT_SEC
+              value: "60"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hydration
+  namespace: platform
