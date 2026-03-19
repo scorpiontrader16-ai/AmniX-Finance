@@ -45,6 +45,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "tiered" {
   rule {
     id     = "archive-old-segments"
     status = "Enabled"
+    filter {}
     transition {
       days          = 30
       storage_class = "STANDARD_IA"
@@ -62,7 +63,6 @@ resource "aws_security_group" "redpanda" {
   description = "Redpanda broker access"
   vpc_id      = var.vpc_id
 
-  # Kafka API — من داخل الـ VPC فقط
   ingress {
     description = "Kafka API from VPC"
     from_port   = 9092
@@ -71,7 +71,6 @@ resource "aws_security_group" "redpanda" {
     cidr_blocks = ["10.0.0.0/8"]
   }
 
-  # Admin API
   ingress {
     description = "Redpanda Admin API from VPC"
     from_port   = 9644
@@ -80,7 +79,6 @@ resource "aws_security_group" "redpanda" {
     cidr_blocks = ["10.0.0.0/8"]
   }
 
-  # Schema Registry
   ingress {
     description = "Schema Registry from VPC"
     from_port   = 8081
@@ -89,7 +87,6 @@ resource "aws_security_group" "redpanda" {
     cidr_blocks = ["10.0.0.0/8"]
   }
 
-  # Inter-broker
   ingress {
     description = "Inter-broker communication"
     from_port   = 33145
@@ -149,8 +146,7 @@ resource "aws_iam_instance_profile" "redpanda" {
   role = aws_iam_role.redpanda.name
 }
 
-# ── EC2 Instances — Redpanda Brokers ─────────────────────────────────────
-# im4gn.xlarge — NVMe optimized — أفضل للـ Kafka workloads
+# ── AMI — ARM64 ──────────────────────────────────────────────────────────
 data "aws_ami" "redpanda" {
   most_recent = true
   owners      = ["amazon"]
@@ -164,19 +160,19 @@ data "aws_ami" "redpanda" {
   }
 }
 
+data "aws_region" "current" {}
+
+# ── EC2 Instances — Redpanda Brokers ─────────────────────────────────────
 resource "aws_instance" "redpanda" {
   count = var.broker_count
 
   ami           = data.aws_ami.redpanda.id
   instance_type = var.instance_type
 
-  # توزيع على الـ subnets عبر الـ AZs
-  subnet_id = var.private_subnet_ids[count.index % length(var.private_subnet_ids)]
-
+  subnet_id              = var.private_subnet_ids[count.index % length(var.private_subnet_ids)]
   vpc_security_group_ids = [aws_security_group.redpanda.id]
   iam_instance_profile   = aws_iam_instance_profile.redpanda.name
 
-  # NVMe root volume
   root_block_device {
     volume_type           = "gp3"
     volume_size           = 100
@@ -185,20 +181,18 @@ resource "aws_instance" "redpanda" {
   }
 
   user_data = base64encode(templatefile("${path.module}/userdata.sh", {
-    broker_id            = count.index
-    cluster_name         = var.cluster_name
+    broker_id             = count.index
+    cluster_name          = var.cluster_name
     tiered_storage_bucket = aws_s3_bucket.tiered.bucket
-    aws_region           = data.aws_region.current.name
-    broker_ips           = [] # يُحدَّث بعد إنشاء كل الـ instances
+    aws_region            = data.aws_region.current.name
   }))
 
   tags = {
-    Name        = "${var.cluster_name}-redpanda-${count.index}"
-    Environment = var.environment
-    Role        = "redpanda-broker"
-    BrokerId    = count.index
-    # Redpanda discovery tag
-    "redpanda:cluster" = var.cluster_name
+    Name                 = "${var.cluster_name}-redpanda-${count.index}"
+    Environment          = var.environment
+    Role                 = "redpanda-broker"
+    BrokerId             = count.index
+    "redpanda:cluster"   = var.cluster_name
   }
 
   lifecycle {
@@ -206,12 +200,10 @@ resource "aws_instance" "redpanda" {
   }
 }
 
-data "aws_region" "current" {}
-
 # ── MirrorMaker 2 Instance — Cross-Region Sync ───────────────────────────
 resource "aws_instance" "mirrormaker2" {
   ami           = data.aws_ami.redpanda.id
-  instance_type = "c7g.large"  # ARM64 compute optimized
+  instance_type = "c7g.large"
 
   subnet_id              = var.private_subnet_ids[0]
   vpc_security_group_ids = [aws_security_group.redpanda.id]
