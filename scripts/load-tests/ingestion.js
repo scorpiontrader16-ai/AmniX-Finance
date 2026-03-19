@@ -1,27 +1,31 @@
 // scripts/load-tests/ingestion.js
 // k6 Load Testing — Ingestion + Processing Services
 //
-// الاستخدام داخل الـ cluster:
+// داخل cluster:
 //   INGESTION_URL  = http://ingestion-stable.platform.svc.cluster.local:8080
 //   PROCESSING_URL = http://processing-stable.platform.svc.cluster.local:50051
 //
-//   Smoke:  k6 run --env SCENARIO=smoke  ingestion.js
-//   Load:   k6 run --env SCENARIO=load   ingestion.js
-//   Stress: k6 run --env SCENARIO=stress ingestion.js
+// محلياً عبر port-forward:
+//   INGESTION_URL  = http://localhost:8080
+//   PROCESSING_URL = http://localhost:50051
+//
+// تشغيل:
+//   k6 run --env SCENARIO=smoke  --env INGESTION_URL=... ingestion.js
+//   k6 run --env SCENARIO=load   --env INGESTION_URL=... ingestion.js
+//   k6 run --env SCENARIO=stress --env INGESTION_URL=... ingestion.js
 
-import http  from 'k6/http';
+import http from 'k6/http';
 import { check, sleep, group } from 'k6';
-import { Rate, Trend, Counter }  from 'k6/metrics';
+import { Rate, Trend, Counter } from 'k6/metrics';
 
 // ── Custom Metrics ──────────────────────────────────────────────────────
-const errorRate          = new Rate('error_rate');
-const ingestionLatency   = new Trend('ingestion_latency',  true);
-const processingLatency  = new Trend('processing_latency', true);
-const eventsAccepted     = new Counter('events_accepted');
-const eventsRejected     = new Counter('events_rejected');
+const errorRate         = new Rate('error_rate');
+const ingestionLatency  = new Trend('ingestion_latency',  true);
+const processingLatency = new Trend('processing_latency', true);
+const eventsAccepted    = new Counter('events_accepted');
+const eventsRejected    = new Counter('events_rejected');
 
 // ── Config ──────────────────────────────────────────────────────────────
-// ClusterDNS — يعمل فقط داخل الـ cluster
 const INGESTION_URL  = __ENV.INGESTION_URL
   || 'http://ingestion-stable.platform.svc.cluster.local:8080';
 const PROCESSING_URL = __ENV.PROCESSING_URL
@@ -40,11 +44,11 @@ const SCENARIOS = {
     executor:         'ramping-vus',
     startVUs:         0,
     stages: [
-      { duration: '1m', target: 10  },  // ramp up
-      { duration: '3m', target: 50  },  // sustain
-      { duration: '1m', target: 100 },  // peak
-      { duration: '2m', target: 100 },  // sustain peak
-      { duration: '1m', target: 0   },  // ramp down
+      { duration: '1m', target: 10  },
+      { duration: '3m', target: 50  },
+      { duration: '1m', target: 100 },
+      { duration: '2m', target: 100 },
+      { duration: '1m', target: 0   },
     ],
     gracefulRampDown: '30s',
   },
@@ -62,18 +66,23 @@ const SCENARIOS = {
   },
 };
 
-// ── Thresholds ──────────────────────────────────────────────────────────
-// تصحيح: لا يوجد تكرار لـ http_req_duration — كل metric مرة واحدة فقط
+// ── Validation ──────────────────────────────────────────────────────────
+if (!SCENARIOS[SCENARIO]) {
+  throw new Error(`Unknown SCENARIO="${SCENARIO}". Valid: smoke | load | stress`);
+}
+
+// ── Options ─────────────────────────────────────────────────────────────
+// تصحيح: http_req_duration مرة واحدة فقط — تكرار الـ key يُلغي القيمة الأولى في JS
 export const options = {
   scenarios: {
     [SCENARIO]: SCENARIOS[SCENARIO],
   },
   thresholds: {
-    'http_req_failed':       ['rate<0.01'],        // <1% HTTP errors
-    'http_req_duration':     ['p(95)<500', 'p(99)<1000'], // دمج في سطر واحد
-    'error_rate':            ['rate<0.01'],
-    'ingestion_latency':     ['p(95)<400'],
-    'processing_latency':    ['p(95)<600'],
+    'http_req_failed':      ['rate<0.01'],
+    'http_req_duration':    ['p(95)<500', 'p(99)<1000'],
+    'error_rate':           ['rate<0.01'],
+    'ingestion_latency':    ['p(95)<400'],
+    'processing_latency':   ['p(95)<600'],
   },
 };
 
@@ -102,25 +111,25 @@ function generateEvent() {
   });
 }
 
-const HEADERS = {
+const BASE_HEADERS = {
   'Content-Type':     'application/json',
   'X-Event-Source':   'k6-load-test',
   'X-Schema-Version': '1.0.0',
   'X-Tenant-ID':      'load-test-tenant',
 };
 
-// ── Main Test Function ──────────────────────────────────────────────────
+// ── Main ────────────────────────────────────────────────────────────────
 export default function () {
   const payload = generateEvent();
 
-  // ── Ingestion Service ─────────────────────────────────────────────
+  // ── Ingestion ───────────────────────────────────────────────────
   group('ingestion-service', () => {
     const start = Date.now();
-    const res   = http.post(
+    const res = http.post(
       `${INGESTION_URL}/v1/events`,
       payload,
       {
-        headers: { ...HEADERS, 'X-Event-Type': randomItem(EVENT_TYPES) },
+        headers: { ...BASE_HEADERS, 'X-Event-Type': randomItem(EVENT_TYPES) },
         tags:    { service: 'ingestion' },
       }
     );
@@ -128,33 +137,32 @@ export default function () {
     ingestionLatency.add(Date.now() - start);
 
     const ok = check(res, {
-      'ingestion: status 200':         (r) => r.status === 200,
-      'ingestion: has event_id':        (r) => {
+      'ingestion: status 200': (r) => r.status === 200,
+      'ingestion: has event_id': (r) => {
         try { return JSON.parse(r.body).event_id !== undefined; }
         catch { return false; }
       },
-      'ingestion: accepted true':       (r) => {
+      'ingestion: accepted true': (r) => {
         try { return JSON.parse(r.body).accepted === true; }
         catch { return false; }
       },
-      'ingestion: latency < 500ms':     (r) => r.timings.duration < 500,
+      'ingestion: latency < 500ms': (r) => r.timings.duration < 500,
     });
 
     errorRate.add(!ok);
-    if (res.status === 200) { eventsAccepted.add(1); }
-    else                    { eventsRejected.add(1); }
+    res.status === 200 ? eventsAccepted.add(1) : eventsRejected.add(1);
   });
 
   sleep(0.1);
 
-  // ── Processing Service ────────────────────────────────────────────
+  // ── Processing ──────────────────────────────────────────────────
   group('processing-service', () => {
     const start = Date.now();
-    const res   = http.post(
+    const res = http.post(
       `${PROCESSING_URL}/v1/process`,
       payload,
       {
-        headers: { ...HEADERS },
+        headers: { ...BASE_HEADERS },
         tags:    { service: 'processing' },
       }
     );
@@ -162,8 +170,8 @@ export default function () {
     processingLatency.add(Date.now() - start);
 
     const ok = check(res, {
-      'processing: status 200':       (r) => r.status === 200,
-      'processing: latency < 600ms':  (r) => r.timings.duration < 600,
+      'processing: status 200':      (r) => r.status === 200,
+      'processing: latency < 600ms': (r) => r.timings.duration < 600,
     });
 
     errorRate.add(!ok);
@@ -174,23 +182,22 @@ export default function () {
 
 // ── Setup ───────────────────────────────────────────────────────────────
 export function setup() {
-  // health check على كلا الـ services قبل بدء الـ test
-  const ingestionHealth  = http.get(`${INGESTION_URL}/healthz`);
-  const processingHealth = http.get(`${PROCESSING_URL}/healthz`);
+  const ingRes  = http.get(`${INGESTION_URL}/healthz`);
+  const procRes = http.get(`${PROCESSING_URL}/healthz`);
 
-  if (ingestionHealth.status !== 200) {
+  if (ingRes.status !== 200) {
     throw new Error(
-      `Ingestion service not ready — status: ${ingestionHealth.status} | url: ${INGESTION_URL}`
+      `Ingestion not ready — HTTP ${ingRes.status} @ ${INGESTION_URL}/healthz`
     );
   }
-  if (processingHealth.status !== 200) {
+  if (procRes.status !== 200) {
     throw new Error(
-      `Processing service not ready — status: ${processingHealth.status} | url: ${PROCESSING_URL}`
+      `Processing not ready — HTTP ${procRes.status} @ ${PROCESSING_URL}/healthz`
     );
   }
 
-  console.log(`✓ ingestion  ready @ ${INGESTION_URL}`);
-  console.log(`✓ processing ready @ ${PROCESSING_URL}`);
+  console.log(`✓ ingestion  @ ${INGESTION_URL}`);
+  console.log(`✓ processing @ ${PROCESSING_URL}`);
   console.log(`→ scenario: ${SCENARIO}`);
 
   return { ingestionUrl: INGESTION_URL, processingUrl: PROCESSING_URL };
@@ -198,5 +205,5 @@ export function setup() {
 
 // ── Teardown ────────────────────────────────────────────────────────────
 export function teardown(data) {
-  console.log(`✓ test complete | ingestion: ${data.ingestionUrl} | processing: ${data.processingUrl}`);
+  console.log(`✓ done | ingestion: ${data.ingestionUrl} | processing: ${data.processingUrl}`);
 }
