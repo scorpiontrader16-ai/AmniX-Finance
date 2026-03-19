@@ -11,19 +11,28 @@ spec:
   selector:
     matchLabels:
       app: processing
+
   template:
     metadata:
       labels:
         app: processing
     spec:
       serviceAccountName: processing
+
+      # ── ARM64 — إجباري ──────────────────────────────────────────
+      nodeSelector:
+        kubernetes.io/arch: arm64
+
+      # ── Security Context ────────────────────────────────────────
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
         fsGroup: 1000
+
       containers:
         - name: processing
-          image: ghcr.io/aminpola2001-ctrl/youtuop/processing:latest
+          # ARM64 image — linux/arm64
+          image: ghcr.io/scorpiontrader16-ai/youtuop-1/processing:latest
           ports:
             - name: grpc
               containerPort: 50051
@@ -75,6 +84,7 @@ spec:
             capabilities:
               drop: ["ALL"]
 
+  # ── Canary Strategy ──────────────────────────────────────────────────
   strategy:
     canary:
       canaryService: processing-canary
