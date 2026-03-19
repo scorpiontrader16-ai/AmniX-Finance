@@ -14,6 +14,7 @@ provider "aws" {
     tags = {
       Environment = "production"
       Project     = "platform"
+      Region      = "us-east-1"
       ManagedBy   = "terraform"
     }
   }
@@ -29,6 +30,7 @@ variable "cluster_name" {
   default = "platform-prod"
 }
 
+# ── VPC ─────────────────────────────────────────────────────────────────
 module "vpc" {
   source          = "../../modules/networking"
   name            = "platform-prod"
@@ -39,6 +41,7 @@ module "vpc" {
   cluster_name    = var.cluster_name
 }
 
+# ── EKS Cluster ──────────────────────────────────────────────────────────
 module "cluster" {
   source       = "../../modules/cluster"
   cluster_name = var.cluster_name
@@ -47,6 +50,7 @@ module "cluster" {
   subnet_ids   = module.vpc.private_subnet_ids
 }
 
+# ── Databases ────────────────────────────────────────────────────────────
 module "databases" {
   source       = "../../modules/databases"
   cluster_name = var.cluster_name
@@ -56,6 +60,7 @@ module "databases" {
   multi_az     = true
 }
 
+# ── Redpanda ─────────────────────────────────────────────────────────────
 module "redpanda" {
   source       = "../../modules/redpanda"
   cluster_name = var.cluster_name
@@ -63,6 +68,7 @@ module "redpanda" {
   broker_count = 3
 }
 
+# ── Vault ────────────────────────────────────────────────────────────────
 module "vault" {
   source            = "../../modules/vault"
   cluster_name      = var.cluster_name
@@ -72,6 +78,46 @@ module "vault" {
   oidc_provider_url = module.cluster.oidc_provider_url
 }
 
+# ── Cross-Region Results Sync — US Side ─────────────────────────────────
+# S3 bucket لمزامنة النتائج فقط مع eu-west-1
+# مبدأ M7: Cross-Region sync للنتائج فقط — ليس البيانات الخام
+resource "aws_s3_bucket" "results_sync" {
+  bucket = "platform-results-sync-us-east-1"
+  tags = {
+    Purpose            = "cross-region-results-sync"
+    DataClassification = "results-only"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "results_sync" {
+  bucket = aws_s3_bucket.results_sync.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "results_sync" {
+  bucket = aws_s3_bucket.results_sync.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "aws:kms"
+    }
+  }
+}
+
+# ── Outputs ──────────────────────────────────────────────────────────────
 output "eso_role_arn" {
   value = module.vault.eso_role_arn
+}
+
+output "cluster_endpoint" {
+  value = module.cluster.cluster_endpoint
+}
+
+output "cluster_name" {
+  value = module.cluster.cluster_name
+}
+
+output "results_sync_bucket" {
+  value = aws_s3_bucket.results_sync.bucket
 }
