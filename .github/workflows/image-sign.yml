@@ -5,7 +5,8 @@ on:
   push:
     branches: [main]
     paths:
-      - 'services/**'
+      - 'services/ingestion/**'
+      - 'services/processing/**'
 
 permissions:
   contents: read
@@ -16,6 +17,10 @@ jobs:
   build-sign-ingestion:
     name: Build & Sign — Ingestion
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -39,6 +44,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: services/ingestion
+          file: services/ingestion/Dockerfile.arm64
           platforms: linux/arm64
           push: true
           tags: |
@@ -55,6 +61,10 @@ jobs:
   build-sign-processing:
     name: Build & Sign — Processing
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -78,6 +88,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: services/processing
+          file: services/processing/Dockerfile.arm64
           platforms: linux/arm64
           push: true
           tags: |
