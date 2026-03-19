@@ -30,7 +30,7 @@ variable "cluster_name" {
   default = "platform-prod"
 }
 
-# ── VPC ─────────────────────────────────────────────────────────────────
+# ── VPC ──────────────────────────────────────────────────────────────────
 module "vpc" {
   source          = "../../modules/networking"
   name            = "platform-prod"
@@ -50,7 +50,7 @@ module "cluster" {
   subnet_ids   = module.vpc.private_subnet_ids
 }
 
-# ── Databases ────────────────────────────────────────────────────────────
+# ── Databases ─────────────────────────────────────────────────────────────
 module "databases" {
   source       = "../../modules/databases"
   cluster_name = var.cluster_name
@@ -60,15 +60,18 @@ module "databases" {
   multi_az     = true
 }
 
-# ── Redpanda ─────────────────────────────────────────────────────────────
+# ── Redpanda ──────────────────────────────────────────────────────────────
 module "redpanda" {
-  source       = "../../modules/redpanda"
-  cluster_name = var.cluster_name
-  environment  = "production"
-  broker_count = 3
+  source             = "../../modules/redpanda"
+  cluster_name       = var.cluster_name
+  environment        = "production"
+  broker_count       = 3
+  instance_type      = "im4gn.xlarge"
+  vpc_id             = module.vpc.vpc_id
+  private_subnet_ids = module.vpc.private_subnet_ids
 }
 
-# ── Vault ────────────────────────────────────────────────────────────────
+# ── Vault ─────────────────────────────────────────────────────────────────
 module "vault" {
   source            = "../../modules/vault"
   cluster_name      = var.cluster_name
@@ -78,9 +81,7 @@ module "vault" {
   oidc_provider_url = module.cluster.oidc_provider_url
 }
 
-# ── Cross-Region Results Sync — US Side ─────────────────────────────────
-# S3 bucket لمزامنة النتائج فقط مع eu-west-1
-# مبدأ M7: Cross-Region sync للنتائج فقط — ليس البيانات الخام
+# ── Cross-Region Results Sync — US Side ──────────────────────────────────
 resource "aws_s3_bucket" "results_sync" {
   bucket = "platform-results-sync-us-east-1"
   tags = {
@@ -105,7 +106,13 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "results_sync" {
   }
 }
 
-# ── Outputs ──────────────────────────────────────────────────────────────
+# ── Postgres Read Replica في eu-west-1 ───────────────────────────────────
+resource "aws_db_instance_automated_backups_replication" "postgres_eu" {
+  source_db_instance_arn = module.databases.postgres_arn
+  retention_period       = 7
+}
+
+# ── Outputs ───────────────────────────────────────────────────────────────
 output "eso_role_arn" {
   value = module.vault.eso_role_arn
 }
@@ -120,4 +127,8 @@ output "cluster_name" {
 
 output "results_sync_bucket" {
   value = aws_s3_bucket.results_sync.bucket
+}
+
+output "redpanda_broker_ips" {
+  value = module.redpanda.broker_private_ips
 }
