@@ -1,0 +1,120 @@
+# k8s/base/processing/rollout.yaml
+# Argo Rollout — Processing Service / Rust Engine (Canary)
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: processing
+  namespace: platform
+  labels:
+    app: processing
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: processing
+
+  template:
+    metadata:
+      labels:
+        app: processing
+    spec:
+      serviceAccountName: processing
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: processing
+          image: ghcr.io/aminpola2001-ctrl/youtuop/processing:latest
+          ports:
+            - name: grpc
+              containerPort: 50051
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: GRPC_PORT
+              value: "50051"
+            - name: METRICS_PORT
+              value: "9090"
+            - name: REDPANDA_BROKERS
+              value: redpanda:9092
+            - name: KAFKA_GROUP_ID
+              value: processing-consumer
+            - name: KAFKA_TOPIC
+              value: market-events
+            - name: PROCESSING_ADDR
+              value: http://processing:50051
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: otel-collector:4317
+            - name: RUST_LOG
+              value: info
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+  # ── Canary Strategy ────────────────────────────────────────────────────
+  strategy:
+    canary:
+      canaryService: processing-canary
+      stableService: processing-stable
+
+      steps:
+        - setWeight: 10
+        - pause:
+            duration: 3m
+        - analysis:
+            templates:
+              - templateName: grpc-error-rate-check
+        - setWeight: 50
+        - pause:
+            duration: 5m
+        - setWeight: 100
+
+      autoPromotionEnabled: false
+
+---
+# AnalysisTemplate — يتحقق من gRPC error rate للـ Rust engine
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: grpc-error-rate-check
+  namespace: platform
+spec:
+  metrics:
+    - name: grpc-error-rate
+      interval: 60s
+      failureLimit: 3
+      provider:
+        prometheus:
+          address: http://prometheus:9090
+          query: |
+            sum(rate(processing_grpc_requests_total{status!="OK"}[2m]))
+            /
+            sum(rate(processing_grpc_requests_total[2m]))
+      successCondition: result[0] < 0.01
