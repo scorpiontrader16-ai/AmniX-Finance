@@ -221,28 +221,9 @@ spec:
     syncOptions:
       - CreateNamespace=true
 ---
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: cross-region-sync
-  namespace: argocd
-  labels:
-    app.kubernetes.io/component: sync
-  annotations:
-    argocd.argoproj.io/sync-wave: "2"
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
-    targetRevision: main
-    path: k8s/base/sync
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: platform
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
-      - ServerSideApply=true
+# cross-region-sync — معطّل مؤقتاً لحد ما يتعمل k8s/base/sync/
+# apiVersion: argoproj.io/v1alpha1
+# kind: Application
+# metadata:
+#   name: cross-region-sync
+# ...
