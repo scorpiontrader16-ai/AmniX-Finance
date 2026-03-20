@@ -36,6 +36,14 @@ variable "environment" {
   type = string
 }
 
+# أضف متغير للـ CIDRs المسموح بها للوصول لـ EKS API
+# غيّر القيمة دي لـ IP الخاص بـ VPN أو bastion host عندك
+variable "eks_public_access_cidrs" {
+  type        = list(string)
+  description = "CIDRs allowed to access EKS API server. Should be restricted to VPN/bastion IPs."
+  default     = ["10.0.0.0/8"]
+}
+
 # ── EKS Cluster ──────────────────────────────────────────────────────────
 resource "aws_eks_cluster" "main" {
   name     = var.cluster_name
@@ -46,9 +54,8 @@ resource "aws_eks_cluster" "main" {
     subnet_ids              = var.subnet_ids
     endpoint_private_access = true
     endpoint_public_access  = true
-    # تصحيح — مش مكشوف للإنترنت كله
-    # غيّر هذا لـ IP الخاص بك عند التطبيق
-    public_access_cidrs = ["0.0.0.0/0"]
+    # مقيّد بـ VPN/bastion IPs فقط — مش 0.0.0.0/0
+    public_access_cidrs = var.eks_public_access_cidrs
   }
 
   encryption_config {
@@ -181,7 +188,6 @@ resource "aws_iam_role" "github_actions" {
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringLike = {
-          # تصحيح — الـ repo الصحيح
           "token.actions.githubusercontent.com:sub" = "repo:scorpiontrader16-ai/youtuop-1:*"
         }
         StringEquals = {
@@ -266,22 +272,18 @@ resource "aws_s3_bucket_policy" "cloudtrail" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "AWSCloudTrailAclCheck"
-        Effect = "Allow"
-        Principal = {
-          Service = "cloudtrail.amazonaws.com"
-        }
-        Action   = "s3:GetBucketAcl"
-        Resource = aws_s3_bucket.cloudtrail.arn
+        Sid       = "AWSCloudTrailAclCheck"
+        Effect    = "Allow"
+        Principal = { Service = "cloudtrail.amazonaws.com" }
+        Action    = "s3:GetBucketAcl"
+        Resource  = aws_s3_bucket.cloudtrail.arn
       },
       {
-        Sid    = "AWSCloudTrailWrite"
-        Effect = "Allow"
-        Principal = {
-          Service = "cloudtrail.amazonaws.com"
-        }
-        Action   = "s3:PutObject"
-        Resource = "${aws_s3_bucket.cloudtrail.arn}/AWSLogs/*"
+        Sid       = "AWSCloudTrailWrite"
+        Effect    = "Allow"
+        Principal = { Service = "cloudtrail.amazonaws.com" }
+        Action    = "s3:PutObject"
+        Resource  = "${aws_s3_bucket.cloudtrail.arn}/AWSLogs/*"
         Condition = {
           StringEquals = {
             "s3:x-amz-acl" = "bucket-owner-full-control"
@@ -312,9 +314,7 @@ resource "aws_cloudtrail" "main" {
 
   tags = { Environment = var.environment }
 
-  depends_on = [
-    aws_s3_bucket_policy.cloudtrail,
-  ]
+  depends_on = [aws_s3_bucket_policy.cloudtrail]
 }
 
 # ── S3 Public Access Block — Account Level ───────────────────────────────
