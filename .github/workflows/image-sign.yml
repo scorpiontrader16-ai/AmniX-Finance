@@ -7,6 +7,7 @@ on:
     paths:
       - 'services/ingestion/**'
       - 'services/processing/**'
+      - 'proto/**'
 
 permissions:
   contents: read
@@ -87,7 +88,7 @@ jobs:
         id: build-processing
         uses: docker/build-push-action@v5
         with:
-          context: services/processing
+          context: .
           file: services/processing/Dockerfile.arm64
           platforms: linux/arm64
           push: true
