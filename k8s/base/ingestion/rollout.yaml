@@ -25,19 +25,20 @@ spec:
         fsGroup: 1000
       containers:
         - name: ingestion
-          image: ghcr.io/scorpiontrader16-ai/youtuop-1/ingestion:latest
+          # الـ image tag بيتحدث تلقائياً من release.yml workflow
+          image: ghcr.io/scorpiontrader16-ai/youtuop-1/ingestion:1.0.0
           ports:
             - name: grpc
-              containerPort: 8080
+              containerPort: 8090
               protocol: TCP
-            - name: metrics
-              containerPort: 9090
+            - name: http
+              containerPort: 9091
               protocol: TCP
           env:
             - name: GRPC_PORT
-              value: "8080"
+              value: "8090"
             - name: HTTP_PORT
-              value: "9090"
+              value: "9091"
             - name: REDPANDA_BROKERS
               value: redpanda:9092
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
@@ -55,14 +56,14 @@ spec:
           readinessProbe:
             httpGet:
               path: /readyz
-              port: 9090
+              port: 9091
             initialDelaySeconds: 5
             periodSeconds: 10
             failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /healthz
-              port: 9090
+              port: 9091
             initialDelaySeconds: 10
             periodSeconds: 30
             failureThreshold: 3
@@ -71,6 +72,8 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+
+  # ── Canary Strategy ──────────────────────────────────────
   strategy:
     canary:
       canaryService: ingestion-canary
@@ -108,7 +111,7 @@ spec:
       failureLimit: 3
       provider:
         prometheus:
-          address: http://prometheus:9090
+          address: http://victoria-metrics.monitoring.svc.cluster.local:8428
           query: |
             sum(rate(ingestion_http_requests_total{status=~"5.*"}[2m]))
             /
@@ -128,7 +131,7 @@ spec:
       failureLimit: 3
       provider:
         prometheus:
-          address: http://prometheus:9090
+          address: http://victoria-metrics.monitoring.svc.cluster.local:8428
           query: |
             histogram_quantile(0.99,
               sum(rate(ingestion_http_request_duration_seconds_bucket[2m]))
