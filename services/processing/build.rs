@@ -1,6 +1,6 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")?;
-    let proto_root   = format!("{}/../../proto", manifest_dir);
+    let proto_root   = format!("{manifest_dir}/../../proto");
 
     // Single pass — compile both protos together.
     // prost generates cross-references as events::v1::BaseEvent.
@@ -17,14 +17,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .compile_protos(
             &[
-                &format!("{}/events/v1/event.proto",       proto_root),
-                &format!("{}/processing/v1/engine.proto",  proto_root),
+                &format!("{proto_root}/events/v1/event.proto"),
+                &format!("{proto_root}/processing/v1/engine.proto"),
             ],
             &[&proto_root],
         )?;
 
-    println!("cargo:rerun-if-changed={}/events/v1/event.proto",      proto_root);
-    println!("cargo:rerun-if-changed={}/processing/v1/engine.proto", proto_root);
+    println!("cargo:rerun-if-changed={proto_root}/events/v1/event.proto");
+    println!("cargo:rerun-if-changed={proto_root}/processing/v1/engine.proto");
 
     Ok(())
 }
