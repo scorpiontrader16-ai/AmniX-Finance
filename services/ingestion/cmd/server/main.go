@@ -27,10 +27,11 @@ import (
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 
-	chwriter  "github.com/aminpola2001-ctrl/youtuop/services/ingestion/internal/clickhouse"
+	chwriter "github.com/aminpola2001-ctrl/youtuop/services/ingestion/internal/clickhouse"
 	"github.com/aminpola2001-ctrl/youtuop/services/ingestion/internal/coldstore"
 	"github.com/aminpola2001-ctrl/youtuop/services/ingestion/internal/postgres"
 	"github.com/aminpola2001-ctrl/youtuop/services/ingestion/internal/tiering"
@@ -76,6 +77,11 @@ var (
 		Name: "ingestion_rate_limit_rejected_total",
 		Help: "Total number of requests rejected by rate limiter",
 	})
+
+	tenantMissingTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "ingestion_tenant_missing_total",
+		Help: "Total number of requests rejected due to missing tenant_id",
+	})
 )
 
 // ── Circuit Breakers ──────────────────────────────────────────────────────
@@ -107,8 +113,8 @@ func newCircuitBreaker(name string, log *zap.Logger) *gobreaker.CircuitBreaker {
 	})
 }
 
-// ErrRateLimited is returned when the rate limiter rejects a request.
-var ErrRateLimited = status.Error(codes.ResourceExhausted, "rate limit exceeded, try again later")
+var ErrRateLimited  = status.Error(codes.ResourceExhausted, "rate limit exceeded, try again later")
+var ErrMissingTenant = status.Error(codes.InvalidArgument, "x-tenant-id metadata is required")
 
 func main() {
 	log, err := zap.NewProduction()
@@ -167,7 +173,6 @@ func main() {
 
 	if pgClient != nil {
 		defer pgClient.Close()
-		// شغّل الـ migrations تلقائياً عند الـ startup
 		if migrateErr := pgClient.Migrate(startupCtx); migrateErr != nil {
 			log.Warn("postgres migrations failed", zap.Error(migrateErr))
 		} else {
@@ -184,7 +189,6 @@ func main() {
 	}
 
 	// ── Tiering Job (Warm → Cold) ─────────────────────────────────────────
-	// يشتغل بس لو الاتنين Postgres و ColdStore متاحين
 	tieringCtx, tieringCancel := context.WithCancel(context.Background())
 
 	if pgClient != nil && coldWriter != nil {
@@ -196,8 +200,8 @@ func main() {
 	}
 
 	// ── Circuit Breakers ──────────────────────────────────────────────────
-	redpandaCB    := newCircuitBreaker("redpanda", log)
-	processingCB  := newCircuitBreaker("processing-grpc", log)
+	redpandaCB   := newCircuitBreaker("redpanda", log)
+	processingCB := newCircuitBreaker("processing-grpc", log)
 
 	limiter := rate.NewLimiter(1000, 100)
 
@@ -211,6 +215,7 @@ func main() {
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 		grpc.MaxRecvMsgSize(16*1024*1024),
 		grpc.ChainUnaryInterceptor(
+			tenantInterceptor(log),
 			rateLimitInterceptor(limiter, log),
 		),
 	)
@@ -286,6 +291,15 @@ func main() {
 			return
 		}
 
+		// ── Tenant Validation — يجبر كل request يبعت tenant_id ────────────
+		tenantID := r.Header.Get("X-Tenant-ID")
+		if tenantID == "" {
+			tenantMissingTotal.Inc()
+			httpRequestsTotal.WithLabelValues(r.Method, path, "400").Inc()
+			http.Error(w, "X-Tenant-ID header is required", http.StatusBadRequest)
+			return
+		}
+
 		eventID := fmt.Sprintf("evt-%d", time.Now().UnixNano())
 		now := time.Now().UTC()
 
@@ -303,7 +317,7 @@ func main() {
 				SchemaVersion: r.Header.Get("X-Schema-Version"),
 				OccurredAt:    now,
 				IngestedAt:    now,
-				TenantID:      r.Header.Get("X-Tenant-ID"),
+				TenantID:      tenantID,
 				PartitionKey:  r.Header.Get("X-Partition-Key"),
 				ContentType:   r.Header.Get("Content-Type"),
 				Payload:       "",
@@ -324,7 +338,7 @@ func main() {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, `{"event_id":%q,"accepted":true}`, eventID)
+		fmt.Fprintf(w, `{"event_id":%q,"tenant_id":%q,"accepted":true}`, eventID, tenantID)
 	})
 
 	httpServer := &http.Server{
@@ -357,23 +371,64 @@ func main() {
 	// ── Graceful Shutdown ─────────────────────────────────────────────────
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	sig := <-quit
 
-	log.Info("shutting down gracefully...")
+	log.Info("shutting down gracefully...", zap.String("signal", sig.String()))
 
-	// أوقف الـ tiering job أولاً
+	// 1. أوقف الـ tiering job أولاً
 	tieringCancel()
 
 	shutCtx, shutCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutCancel()
 
+	// 2. أعلم الـ health check إن الـ service بيوقف
 	healthSrv.SetServingStatus("", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
+
+	// 3. أوقف الـ gRPC server بشكل آمن
 	grpcServer.GracefulStop()
+
+	// 4. أوقف الـ HTTP server
 	if shutErr := httpServer.Shutdown(shutCtx); shutErr != nil {
 		log.Error("HTTP shutdown error", zap.Error(shutErr))
 	}
 
 	log.Info("shutdown complete")
+}
+
+// ── Tenant Interceptor — يجبر كل gRPC call يبعت x-tenant-id ─────────────
+
+func tenantInterceptor(log *zap.Logger) grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context,
+		req interface{},
+		info *grpc.UnaryServerInfo,
+		handler grpc.UnaryHandler,
+	) (interface{}, error) {
+		md, ok := metadata.FromIncomingContext(ctx)
+		if !ok {
+			tenantMissingTotal.Inc()
+			return nil, ErrMissingTenant
+		}
+		vals := md.Get("x-tenant-id")
+		if len(vals) == 0 || vals[0] == "" {
+			tenantMissingTotal.Inc()
+			log.Warn("gRPC call missing x-tenant-id",
+				zap.String("method", info.FullMethod),
+			)
+			return nil, ErrMissingTenant
+		}
+		ctx = context.WithValue(ctx, contextKeyTenantID{}, vals[0])
+		return handler(ctx, req)
+	}
+}
+
+// contextKeyTenantID هو الـ key للـ tenant_id في الـ context
+type contextKeyTenantID struct{}
+
+// TenantIDFromContext يسترجع الـ tenant_id من الـ context
+func TenantIDFromContext(ctx context.Context) (string, bool) {
+	v, ok := ctx.Value(contextKeyTenantID{}).(string)
+	return v, ok && v != ""
 }
 
 // ── Rate Limit Interceptor ────────────────────────────────────────────────
@@ -423,11 +478,11 @@ type Config struct {
 }
 
 func loadConfig() (Config, error) {
-	grpcPort, err := getEnvInt("GRPC_PORT", 8080)
+	grpcPort, err := getEnvInt("GRPC_PORT", 8090)
 	if err != nil {
 		return Config{}, fmt.Errorf("GRPC_PORT: %w", err)
 	}
-	httpPort, err := getEnvInt("HTTP_PORT", 9090)
+	httpPort, err := getEnvInt("HTTP_PORT", 9091)
 	if err != nil {
 		return Config{}, fmt.Errorf("HTTP_PORT: %w", err)
 	}
