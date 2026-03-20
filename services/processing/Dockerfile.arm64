@@ -15,7 +15,8 @@ RUN cargo install cargo-chef
 WORKDIR /app
 
 FROM chef AS planner
-COPY . .
+COPY services/processing/ .
+COPY proto/ ../../proto/
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder-deps
@@ -24,7 +25,8 @@ RUN cargo chef cook --release --recipe-path recipe.json
 
 FROM builder-deps AS builder
 ARG BUILD_VERSION=dev
-COPY . .
+COPY services/processing/ .
+COPY proto/ ../../proto/
 RUN cargo build \
     --release \
     && strip target/release/processing
