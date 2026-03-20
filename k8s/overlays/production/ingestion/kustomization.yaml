@@ -1,8 +1,19 @@
+# ============================================================
+# overlays/production/ingestion/kustomization.yaml
+# الـ image tag بيتحدث تلقائياً من release.yml workflow
+# ============================================================
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: platform
 resources:
   - ../../../base/ingestion
+
+# الـ image tag بيتحدث تلقائياً من release.yml
+# لا تعدّل :latest يدوياً — استخدم semantic version أو SHA digest
+images:
+  - name: ghcr.io/scorpiontrader16-ai/youtuop-1/ingestion
+    newTag: "1.0.0"
+
 patches:
   - target:
       kind: Rollout
@@ -17,9 +28,6 @@ patches:
       - op: replace
         path: /spec/template/spec/containers/0/resources/limits/cpu
         value: "1"
-      - op: replace
-        path: /spec/template/spec/containers/0/image
-        value: "ghcr.io/scorpiontrader16-ai/youtuop-1/ingestion:latest"
       - op: add
         path: /spec/template/spec/nodeSelector
         value:
