@@ -1,3 +1,7 @@
+# ============================================================
+# image-sign.yml — Build, Push & Sign Docker Images
+# يتشغل على كل push لـ main أو manually
+# ============================================================
 name: Build & Sign Images
 
 on:
@@ -9,12 +13,17 @@ on:
       - 'services/processing/**'
       - 'proto/**'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
   packages: write
   id-token: write
 
 jobs:
+  # ─── Ingestion Service ────────────────────────────────────
   build-sign-ingestion:
     name: Build & Sign — Ingestion
     runs-on: ubuntu-latest
@@ -40,17 +49,28 @@ jobs:
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Get current version
+        id: version
+        run: |
+          LATEST=$(git tag --sort=-v:refname | grep '^v' | head -1 || echo "v0.0.0")
+          echo "version=${LATEST#v}" >> $GITHUB_OUTPUT
+
       - name: Build & Push — Ingestion
         id: build-ingestion
         uses: docker/build-push-action@v5
         with:
           context: services/ingestion
           file: services/ingestion/Dockerfile.arm64
-          platforms: linux/arm64
+          platforms: linux/arm64,linux/amd64
           push: true
           tags: |
             ghcr.io/${{ github.repository }}/ingestion:latest
+            ghcr.io/${{ github.repository }}/ingestion:${{ steps.version.outputs.version }}
             ghcr.io/${{ github.repository }}/ingestion:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -59,6 +79,7 @@ jobs:
           cosign sign --yes \
             ghcr.io/${{ github.repository }}/ingestion@${{ steps.build-ingestion.outputs.digest }}
 
+  # ─── Processing Service ───────────────────────────────────
   build-sign-processing:
     name: Build & Sign — Processing
     runs-on: ubuntu-latest
@@ -84,17 +105,28 @@ jobs:
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Get current version
+        id: version
+        run: |
+          LATEST=$(git tag --sort=-v:refname | grep '^v' | head -1 || echo "v0.0.0")
+          echo "version=${LATEST#v}" >> $GITHUB_OUTPUT
+
       - name: Build & Push — Processing
         id: build-processing
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: services/processing
           file: services/processing/Dockerfile.arm64
-          platforms: linux/arm64
+          platforms: linux/arm64,linux/amd64
           push: true
           tags: |
             ghcr.io/${{ github.repository }}/processing:latest
+            ghcr.io/${{ github.repository }}/processing:${{ steps.version.outputs.version }}
             ghcr.io/${{ github.repository }}/processing:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
