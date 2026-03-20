@@ -1,9 +1,12 @@
+-- ============================================================
 -- infra/clickhouse/init.sql
--- تمت إزالة أوامر CREATE USER و GRANT لأن المستخدم platform موجود مسبقاً
--- وتم إصلاح التعليقات داخل تعريف الأعمدة
+-- ClickHouse Hot Store — Events Database
+-- ============================================================
 
+-- تمت إزالة أوامر CREATE USER و GRANT لأن المستخدم platform موجود مسبقاً
 CREATE DATABASE IF NOT EXISTS events;
 
+-- ── جدول base_events (Hot Store — 7 أيام) ─────────────────
 CREATE TABLE IF NOT EXISTS events.base_events
 (
     event_id       String,
@@ -26,12 +29,12 @@ CREATE TABLE IF NOT EXISTS events.base_events
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(occurred_at)
 ORDER BY (tenant_id, event_type, occurred_at, event_id)
-TTL toDateTime(occurred_at) + INTERVAL 7 DAY   -- تحويل إلى DateTime لحل مشكلة TTL
+TTL toDateTime(occurred_at) + INTERVAL 7 DAY
 SETTINGS
     index_granularity = 8192,
     ttl_only_drop_parts = 1;
 
--- جدول events_by_type
+-- ── جدول events_by_type ────────────────────────────────────
 CREATE TABLE IF NOT EXISTS events.events_by_type
 (
     event_type  LowCardinality(String),
@@ -44,9 +47,9 @@ CREATE TABLE IF NOT EXISTS events.events_by_type
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(occurred_at)
 ORDER BY (event_type, tenant_id, occurred_at)
-TTL toDateTime(occurred_at) + INTERVAL 7 DAY;   -- تحويل إلى DateTime
+TTL toDateTime(occurred_at) + INTERVAL 7 DAY;
 
--- Materialized view يعتمد على base_events (يجب أن يكون بعد إنشاء base_events)
+-- ── Materialized View: base_events → events_by_type ────────
 CREATE MATERIALIZED VIEW IF NOT EXISTS events.mv_events_by_type
 TO events.events_by_type
 AS SELECT
@@ -58,7 +61,7 @@ AS SELECT
     trace_id
 FROM events.base_events;
 
--- جدول hourly_stats
+-- ── جدول hourly_stats ──────────────────────────────────────
 CREATE TABLE IF NOT EXISTS events.hourly_stats
 (
     hour                DateTime,
@@ -73,7 +76,7 @@ PARTITION BY toYYYYMM(hour)
 ORDER BY (hour, tenant_id, event_type, source)
 TTL hour + INTERVAL 30 DAY;
 
--- Materialized view لـ hourly_stats
+-- ── Materialized View: base_events → hourly_stats ──────────
 CREATE MATERIALIZED VIEW IF NOT EXISTS events.mv_hourly_stats
 TO events.hourly_stats
 AS SELECT
@@ -85,3 +88,25 @@ AS SELECT
     sum(payload_bytes)   AS total_payload_bytes
 FROM events.base_events
 GROUP BY hour, tenant_id, event_type, source;
+
+-- ── جدول cold_storage_index — تتبع Parquet files في MinIO ──
+-- يُستخدم للـ query routing: هل البيانات في hot أو cold؟
+CREATE TABLE IF NOT EXISTS events.cold_storage_index
+(
+    file_id         String,
+    tenant_id       LowCardinality(String),
+    bucket          LowCardinality(String),
+    object_key      String,
+    schema_version  LowCardinality(String),
+    row_count       UInt64  DEFAULT 0,
+    file_size_bytes UInt64  DEFAULT 0,
+    from_date       DateTime,
+    to_date         DateTime,
+    event_types     Array(String),
+    status          LowCardinality(String) DEFAULT 'active',
+    created_at      DateTime64(3, 'UTC')  DEFAULT now64(3)
+)
+ENGINE = MergeTree()
+PARTITION BY toYYYYMM(from_date)
+ORDER BY (tenant_id, from_date, file_id)
+SETTINGS index_granularity = 8192;
