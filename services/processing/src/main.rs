@@ -130,11 +130,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .parse()
         .map_err(|e| format!("invalid metrics address: {e}"))?;
 
+    // ── Graceful Shutdown — يستمع لـ SIGTERM (K8s) و SIGINT (Ctrl+C) ─────
     let shutdown = async move {
-        match signal::ctrl_c().await {
-            Ok(())  => info!("shutdown signal received"),
-            Err(e)  => tracing::error!(error = %e, "ctrl_c listener error"),
+        let sigterm = async {
+            #[cfg(unix)]
+            {
+                use tokio::signal::unix::{signal, SignalKind};
+                signal(SignalKind::terminate())
+                    .expect("failed to register SIGTERM handler")
+                    .recv()
+                    .await;
+            }
+            #[cfg(not(unix))]
+            {
+                // على Windows مفيش SIGTERM — ننتظر forever
+                std::future::pending::<()>().await;
+            }
+        };
+
+        tokio::select! {
+            _ = signal::ctrl_c() => {
+                info!("SIGINT received — shutting down");
+            }
+            _ = sigterm => {
+                info!("SIGTERM received — shutting down");
+            }
         }
+
         let _ = shutdown_tx.send(true);
     };
 
@@ -207,8 +229,10 @@ pub struct Config {
 impl Config {
     pub fn from_env() -> Result<Self, String> {
         Ok(Self {
+            // GRPC_PORT متوافق مع PROCESSING_GRPC_PORT في .env.example
             grpc_port:    parse_port("GRPC_PORT",    50051)?,
-            metrics_port: parse_port("METRICS_PORT", 9090)?,
+            // METRICS_PORT متوافق مع PROCESSING_HTTP_PORT في .env.example
+            metrics_port: parse_port("METRICS_PORT", 9093)?,
         })
     }
 }
