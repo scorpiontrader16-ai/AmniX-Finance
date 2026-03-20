@@ -27,7 +27,6 @@ ARG BUILD_VERSION=dev
 COPY . .
 RUN cargo build \
     --release \
-    --locked \
     && strip target/release/processing
 
 FROM gcr.io/distroless/cc-debian12:nonroot
