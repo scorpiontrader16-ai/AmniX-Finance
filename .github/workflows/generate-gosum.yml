@@ -1,3 +1,6 @@
+# ============================================================
+# generate-gosum.yml — تحديث go.sum تلقائياً
+# ============================================================
 name: Generate go.sum
 
 on:
@@ -8,16 +11,17 @@ permissions:
 
 jobs:
   generate:
+    name: Generate go.sum
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup Go 1.22
+      - name: Setup Go 1.24
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.24'
           cache-dependency-path: services/ingestion/go.mod
 
       - name: Generate go.sum
@@ -26,8 +30,8 @@ jobs:
 
       - name: Commit go.sum
         run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git add services/ingestion/go.sum
-          git diff --staged --quiet || git commit -m "chore: generate go.sum"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add services/ingestion/go.sum services/ingestion/go.mod
+          git diff --staged --quiet || git commit -m "chore: regenerate go.sum [skip ci]"
           git push
