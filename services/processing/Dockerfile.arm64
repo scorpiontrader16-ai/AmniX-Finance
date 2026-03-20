@@ -1,10 +1,15 @@
 FROM --platform=$BUILDPLATFORM rust:1.88-slim AS chef
 RUN apt-get update && apt-get install -y \
-    protobuf-compiler \
-    pkg-config \
-    libssl-dev \
     cmake \
     make \
+    gcc \
+    g++ \
+    pkg-config \
+    libssl-dev \
+    libsasl2-dev \
+    libcurl4-openssl-dev \
+    protobuf-compiler \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 RUN cargo install cargo-chef
 WORKDIR /app
