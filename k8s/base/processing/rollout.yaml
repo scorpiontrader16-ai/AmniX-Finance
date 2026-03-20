@@ -11,48 +11,40 @@ spec:
   selector:
     matchLabels:
       app: processing
-
   template:
     metadata:
       labels:
         app: processing
     spec:
       serviceAccountName: processing
-
-      # ── ARM64 — إجباري ──────────────────────────────────────────
       nodeSelector:
         kubernetes.io/arch: arm64
-
-      # ── Security Context ────────────────────────────────────────
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
         fsGroup: 1000
-
       containers:
         - name: processing
-          # ARM64 image — linux/arm64
-          image: ghcr.io/scorpiontrader16-ai/youtuop-1/processing:latest
+          # الـ image tag بيتحدث تلقائياً من release.yml workflow
+          image: ghcr.io/scorpiontrader16-ai/youtuop-1/processing:1.0.0
           ports:
             - name: grpc
               containerPort: 50051
               protocol: TCP
             - name: metrics
-              containerPort: 9090
+              containerPort: 9093
               protocol: TCP
           env:
             - name: GRPC_PORT
               value: "50051"
             - name: METRICS_PORT
-              value: "9090"
+              value: "9093"
             - name: REDPANDA_BROKERS
               value: redpanda:9092
             - name: KAFKA_GROUP_ID
               value: processing-consumer
             - name: KAFKA_TOPIC
               value: market-events
-            - name: PROCESSING_ADDR
-              value: http://processing:50051
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: otel-collector:4317
             - name: RUST_LOG
@@ -67,14 +59,14 @@ spec:
           readinessProbe:
             httpGet:
               path: /readyz
-              port: 9090
+              port: 9093
             initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /healthz
-              port: 9090
+              port: 9093
             initialDelaySeconds: 15
             periodSeconds: 30
             failureThreshold: 3
@@ -84,7 +76,7 @@ spec:
             capabilities:
               drop: ["ALL"]
 
-  # ── Canary Strategy ──────────────────────────────────────────────────
+  # ── Canary Strategy ──────────────────────────────────────
   strategy:
     canary:
       canaryService: processing-canary
@@ -119,7 +111,7 @@ spec:
       failureLimit: 3
       provider:
         prometheus:
-          address: http://prometheus:9090
+          address: http://victoria-metrics.monitoring.svc.cluster.local:8428
           query: |
             sum(rate(processing_grpc_requests_total{status!="OK"}[2m]))
             /
@@ -139,7 +131,7 @@ spec:
       failureLimit: 3
       provider:
         prometheus:
-          address: http://prometheus:9090
+          address: http://victoria-metrics.monitoring.svc.cluster.local:8428
           query: |
             histogram_quantile(0.99,
               sum(rate(processing_grpc_request_duration_seconds_bucket[2m]))
