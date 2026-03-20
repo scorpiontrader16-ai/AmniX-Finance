@@ -297,8 +297,7 @@ async fn connect_with_retry(
             Err(e) => {
                 if attempt == max_retries {
                     return Err(format!(
-                        "failed to connect to {} after {} attempts: {}",
-                        addr, max_retries, e
+                        "failed to connect to {addr} after {max_retries} attempts: {e}"
                     ).into());
                 }
                 warn!(
