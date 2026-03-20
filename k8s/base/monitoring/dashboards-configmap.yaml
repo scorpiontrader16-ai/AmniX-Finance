@@ -1,0 +1,209 @@
+# ============================================================
+# k8s/base/monitoring/dashboards-configmap.yaml
+# Grafana Dashboards as Code — محفوظة في Git
+# لو Grafana اتمسح أو اتعمل redeploy الـ dashboards هترجع تلقائياً
+# ============================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-provisioning
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: youtuop-dashboards
+        orgId: 1
+        folder: youtuop
+        type: file
+        disableDeletion: true
+        updateIntervalSeconds: 30
+        allowUiUpdates: false
+        options:
+          path: /var/lib/grafana/dashboards/youtuop
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-ingestion
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  ingestion.json: |
+    {
+      "title": "Ingestion Service",
+      "uid": "youtuop-ingestion",
+      "tags": ["youtuop", "ingestion"],
+      "timezone": "browser",
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Request Rate (req/s)",
+          "type": "stat",
+          "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+          "targets": [{
+            "expr": "sum(rate(ingestion_http_requests_total[1m]))",
+            "legendFormat": "req/s"
+          }]
+        },
+        {
+          "id": 2,
+          "title": "Error Rate (%)",
+          "type": "stat",
+          "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+          "targets": [{
+            "expr": "sum(rate(ingestion_http_requests_total{status=~'5..'}[5m])) / sum(rate(ingestion_http_requests_total[5m])) * 100",
+            "legendFormat": "error %"
+          }]
+        },
+        {
+          "id": 3,
+          "title": "P99 Latency (s)",
+          "type": "stat",
+          "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+          "targets": [{
+            "expr": "histogram_quantile(0.99, sum(rate(ingestion_http_request_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P99"
+          }]
+        },
+        {
+          "id": 4,
+          "title": "Events Processed (total/s)",
+          "type": "stat",
+          "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+          "targets": [{
+            "expr": "sum(rate(ingestion_events_processed_total[1m]))",
+            "legendFormat": "events/s"
+          }]
+        },
+        {
+          "id": 5,
+          "title": "Request Rate over Time",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "sum(rate(ingestion_http_requests_total[1m]))",
+              "legendFormat": "total"
+            },
+            {
+              "expr": "sum(rate(ingestion_http_requests_total{status=~'5..'}[1m]))",
+              "legendFormat": "errors"
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "title": "Latency Percentiles",
+          "type": "timeseries",
+          "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.50, sum(rate(ingestion_http_request_duration_seconds_bucket[5m])) by (le))",
+              "legendFormat": "P50"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(ingestion_http_request_duration_seconds_bucket[5m])) by (le))",
+              "legendFormat": "P95"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(ingestion_http_request_duration_seconds_bucket[5m])) by (le))",
+              "legendFormat": "P99"
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "title": "Circuit Breaker State",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 12, "w": 12, "h": 6 },
+          "targets": [{
+            "expr": "ingestion_circuit_breaker_state",
+            "legendFormat": "{{ name }}"
+          }]
+        },
+        {
+          "id": 8,
+          "title": "SLO — Availability 30d",
+          "type": "gauge",
+          "gridPos": { "x": 12, "y": 12, "w": 6, "h": 6 },
+          "targets": [{
+            "expr": "slo:ingestion:availability30d * 100",
+            "legendFormat": "availability %"
+          }],
+          "options": {
+            "minValue": 99,
+            "maxValue": 100
+          }
+        },
+        {
+          "id": 9,
+          "title": "Error Budget Remaining (%)",
+          "type": "gauge",
+          "gridPos": { "x": 18, "y": 12, "w": 6, "h": 6 },
+          "targets": [{
+            "expr": "slo:ingestion:error_budget_remaining * 100",
+            "legendFormat": "budget %"
+          }],
+          "options": {
+            "minValue": 0,
+            "maxValue": 100
+          }
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-processing
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  processing.json: |
+    {
+      "title": "Processing Service",
+      "uid": "youtuop-processing",
+      "tags": ["youtuop", "processing"],
+      "timezone": "browser",
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Service UP",
+          "type": "stat",
+          "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+          "targets": [{
+            "expr": "up{job='processing'}",
+            "legendFormat": "status"
+          }]
+        },
+        {
+          "id": 2,
+          "title": "SLO Availability 1h",
+          "type": "stat",
+          "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+          "targets": [{
+            "expr": "slo:processing:availability1h * 100",
+            "legendFormat": "availability %"
+          }]
+        },
+        {
+          "id": 3,
+          "title": "Kafka Consumer Lag",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 4, "w": 24, "h": 8 },
+          "targets": [{
+            "expr": "keda_scaler_metrics_value{scaledObject='ingestion'}",
+            "legendFormat": "lag"
+          }]
+        }
+      ]
+    }
