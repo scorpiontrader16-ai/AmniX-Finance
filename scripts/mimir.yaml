@@ -1,10 +1,14 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Mimir — Local Development Config
-# Single-process mode (monolithic) — suitable for local dev only.
-# Receives metrics via remote_write from OTel Collector + Tempo.
+# Long-term metrics storage — بيستقبل من OTel Collector وTempo
+#
+# Endpoints:
+#   HTTP: http://mimir:9009
+#   remote_write: http://mimir:9009/api/v1/push
+#   query: http://mimir:9009/prometheus
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Run all components in a single process (includes alertmanager)
+# Single-process mode للـ local dev
 target: all
 
 multitenancy_enabled: false
@@ -46,25 +50,23 @@ ingester:
       store: memberlist
     replication_factor: 1
 
+store_gateway:
+  sharding_ring:
+    replication_factor: 1
+
 ruler_storage:
   backend: filesystem
   filesystem:
     dir: /data/mimir/rules
 
-ruler:
-  alertmanager_url: http://alertmanager:9093/alertmanager
-  enable_api: true
-
-alertmanager_storage:
-  backend: filesystem
-  filesystem:
-    dir: /data/mimir/alertmanager
+limits:
+  # local dev — relax الـ limits
+  ingestion_rate: 100000
+  ingestion_burst_size: 200000
+  max_global_series_per_user: 1000000
+  # Retention 30 يوم للـ local dev
+  compactor_blocks_retention_period: 30d
 
 memberlist:
-  join_members: []
-
-limits:
-  # Allow out-of-order samples (common from multiple scrapers)
-  out_of_order_time_window: 5m
-  # Increase cardinality limits for local dev
-  max_label_names_per_series: 40
+  join_members:
+    - localhost
