@@ -1,0 +1,67 @@
+---
+# ── JWT protection للـ ingestion gRPC routes ────────────────────────────────
+# auth-routes مش محتاجة JWT — دي هي اللي بتصدر الـ JWT
+# فبنطبق الحماية على كل route تانية بشكل منفصل
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: jwt-policy-ingestion
+  namespace: platform
+  labels:
+    app.kubernetes.io/component: api-gateway
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: GRPCRoute
+    name: ingestion-grpc
+    namespace: platform
+  jwt:
+    providers:
+      - name: youtuop-auth
+        issuer: "https://auth.youtuop-1.com"
+        remoteJWKS:
+          uri: "http://auth-stable.platform.svc.cluster.local:9092/.well-known/jwks.json"
+        claimToHeaders:
+          - claim: sub
+            header: x-user-id
+          - claim: tid
+            header: x-tenant-id
+          - claim: tslug
+            header: x-tenant-slug
+          - claim: plan
+            header: x-plan
+          - claim: role
+            header: x-role
+
+---
+# ── JWT protection للـ processing gRPC routes ───────────────────────────────
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: jwt-policy-processing
+  namespace: platform
+  labels:
+    app.kubernetes.io/component: api-gateway
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: GRPCRoute
+    name: processing-grpc
+    namespace: platform
+  jwt:
+    providers:
+      - name: youtuop-auth
+        issuer: "https://auth.youtuop-1.com"
+        remoteJWKS:
+          uri: "http://auth-stable.platform.svc.cluster.local:9092/.well-known/jwks.json"
+        claimToHeaders:
+          - claim: sub
+            header: x-user-id
+          - claim: tid
+            header: x-tenant-id
+          - claim: tslug
+            header: x-tenant-slug
+          - claim: plan
+            header: x-plan
+          - claim: role
+            header: x-role
