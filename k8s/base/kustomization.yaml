@@ -4,6 +4,7 @@ resources:
   - namespaces.yaml
   - namespace-deny-all.yaml
   - ingestion
+  - auth
   - processing
   - hydration
   - cilium
