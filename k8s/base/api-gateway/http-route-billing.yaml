@@ -1,0 +1,65 @@
+---
+# ── Billing API routes (JWT protected via SecurityPolicy) ───────────────────
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: billing-routes
+  namespace: platform
+  labels:
+    app.kubernetes.io/name: billing
+    app.kubernetes.io/component: api-gateway
+spec:
+  parentRefs:
+    - name: platform-gateway
+      namespace: platform
+      sectionName: https
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /v1/billing
+          method: GET
+      backendRefs:
+        - name: billing-stable
+          port: 9093
+          weight: 90
+        - name: billing-canary
+          port: 9093
+          weight: 10
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /v1/billing
+          method: POST
+      backendRefs:
+        - name: billing-stable
+          port: 9093
+          weight: 90
+        - name: billing-canary
+          port: 9093
+          weight: 10
+
+---
+# ── Stripe Webhook (PUBLIC — no JWT — Stripe sends here directly) ────────────
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: billing-webhook
+  namespace: platform
+  labels:
+    app.kubernetes.io/name: billing
+    app.kubernetes.io/component: api-gateway
+spec:
+  parentRefs:
+    - name: platform-gateway
+      namespace: platform
+      sectionName: https
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /v1/billing/webhooks/stripe
+          method: POST
+      backendRefs:
+        - name: billing-stable
+          port: 9093
