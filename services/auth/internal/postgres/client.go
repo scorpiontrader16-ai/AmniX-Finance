@@ -271,6 +271,15 @@ func (c *Client) AssignRole(ctx context.Context, userID, tenantID, role string) 
 
 // ── Sessions ──────────────────────────────────────────────────────────────
 
+// Session يُستخدم في الـ refresh flow لجلب userID و tenantID
+type Session struct {
+	ID        string
+	UserID    string
+	TenantID  string
+	ExpiresAt time.Time
+	Revoked   bool
+}
+
 func (c *Client) CreateSession(ctx context.Context, userID, tenantID, deviceFP, ip, ua string, expiresAt time.Time) (string, error) {
 	id := uuid.NewString()
 	_, err := c.db.ExecContext(ctx, `
@@ -282,6 +291,22 @@ func (c *Client) CreateSession(ctx context.Context, userID, tenantID, deviceFP, 
 		return "", fmt.Errorf("create session: %w", err)
 	}
 	return id, nil
+}
+
+// GetSessionByID يجيب session نشطة — يُستخدم في refresh flow
+func (c *Client) GetSessionByID(ctx context.Context, sessionID string) (*Session, error) {
+	const q = `
+		SELECT id, user_id, tenant_id, expires_at, revoked
+		FROM sessions
+		WHERE id = $1 AND NOT revoked AND expires_at > NOW()`
+	s := &Session{}
+	err := c.db.QueryRowContext(ctx, q, sessionID).Scan(
+		&s.ID, &s.UserID, &s.TenantID, &s.ExpiresAt, &s.Revoked,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return s, err
 }
 
 func (c *Client) RevokeSession(ctx context.Context, sessionID, userID, reason string) error {
@@ -335,7 +360,6 @@ func (c *Client) ConsumeRefreshToken(ctx context.Context, tokenHash string) (str
 // ── RBAC ──────────────────────────────────────────────────────────────────
 
 // GetPermissions يجيب كل permissions للـ user في tenant معين
-// يُستخدم من rbac.Engine كـ DB interface
 func (c *Client) GetPermissions(ctx context.Context, userID, tenantID string) ([]string, error) {
 	const q = `
 		SELECT DISTINCT p.resource || ':' || p.action
