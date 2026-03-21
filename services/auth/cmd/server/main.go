@@ -187,7 +187,7 @@ func main() {
 	})
 
 	mux.HandleFunc("POST /v1/auth/login",   makeLoginHandler(cfg, pgClient, jwtSvc, rbacEngine, log))
-	mux.HandleFunc("POST /v1/auth/refresh", makeRefreshHandler(pgClient, log))
+	mux.HandleFunc("POST /v1/auth/refresh", makeRefreshHandler(pgClient, jwtSvc, rbacEngine, log))
 	mux.HandleFunc("POST /v1/auth/logout",  makeLogoutHandler(pgClient, jwtSvc, log))
 
 	httpServer := &http.Server{
@@ -374,8 +374,17 @@ func makeLoginHandler(
 	}
 }
 
-func makeRefreshHandler(pg *postgres.Client, log *zap.Logger) http.HandlerFunc {
+// makeRefreshHandler — يصدر access token جديد من refresh token صالح
+// الـ flow: consume refresh token → load session → load user + tenant → issue new tokens
+func makeRefreshHandler(
+	pg *postgres.Client,
+	jwtSvc *appjwt.Service,
+	rbacEngine *rbac.Engine,
+	log *zap.Logger,
+) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
 		var body struct {
 			RefreshToken string `json:"refresh_token"`
 		}
@@ -383,14 +392,98 @@ func makeRefreshHandler(pg *postgres.Client, log *zap.Logger) http.HandlerFunc {
 			jsonError(w, "invalid request body", http.StatusBadRequest)
 			return
 		}
-		_, err := pg.ConsumeRefreshToken(r.Context(), postgres.HashToken(body.RefreshToken))
+		if body.RefreshToken == "" {
+			jsonError(w, "refresh_token is required", http.StatusBadRequest)
+			return
+		}
+
+		// 1. Consume refresh token — atomic، مينفعش يتعمل مرتين
+		sessionID, err := pg.ConsumeRefreshToken(ctx, postgres.HashToken(body.RefreshToken))
 		if err != nil {
-			log.Warn("refresh token invalid", zap.Error(err))
+			log.Warn("refresh token invalid or already used", zap.Error(err))
 			jsonError(w, "invalid or expired refresh token", http.StatusUnauthorized)
 			return
 		}
-		// TODO: load session + reissue access token
-		http.Error(w, "not implemented", http.StatusNotImplemented)
+
+		// 2. Load session — يتأكد إن الـ session لسه شغالة ومش expired
+		session, err := pg.GetSessionByID(ctx, sessionID)
+		if err != nil {
+			log.Warn("session not found or expired", zap.String("session_id", sessionID))
+			jsonError(w, "session expired, please login again", http.StatusUnauthorized)
+			return
+		}
+
+		// 3. Load user
+		user, err := pg.GetUserByID(ctx, session.UserID)
+		if err != nil {
+			log.Error("user not found for session", zap.String("user_id", session.UserID))
+			jsonError(w, "user not found", http.StatusUnauthorized)
+			return
+		}
+
+		// 4. Load tenant
+		tenant, err := pg.GetTenantByID(ctx, session.TenantID)
+		if err != nil {
+			log.Error("tenant not found for session", zap.String("tenant_id", session.TenantID))
+			jsonError(w, "tenant not found", http.StatusForbidden)
+			return
+		}
+
+		// 5. Load role
+		role, err := pg.GetUserRole(ctx, user.ID, tenant.ID)
+		if err != nil {
+			log.Warn("role not found, defaulting to viewer",
+				zap.String("user_id", user.ID),
+				zap.String("tenant_id", tenant.ID),
+			)
+			role = "viewer"
+		}
+
+		// 6. Load permissions (role + plan)
+		perms, err := rbacEngine.GetPermissions(ctx, user.ID, tenant.ID, tenant.Plan)
+		if err != nil {
+			log.Error("load permissions failed", zap.Error(err))
+			perms = []string{}
+		}
+
+		// 7. Issue new access token
+		newToken, err := jwtSvc.IssueAccessToken(appjwt.IssueInput{
+			UserID:      user.ID,
+			Email:       user.Email,
+			SessionID:   session.ID,
+			TenantID:    tenant.ID,
+			TenantSlug:  tenant.Slug,
+			Plan:        tenant.Plan,
+			Role:        role,
+			Permissions: perms,
+		})
+		if err != nil {
+			log.Error("JWT issuance failed", zap.Error(err))
+			jsonError(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		// 8. Issue new refresh token (rotation — كل refresh بيدي token جديد)
+		newRawRefresh := generateToken()
+		if storeErr := pg.StoreRefreshToken(ctx, session.ID,
+			postgres.HashToken(newRawRefresh),
+			time.Now().Add(appjwt.RefreshTokenTTL),
+		); storeErr != nil {
+			log.Warn("store new refresh token failed", zap.Error(storeErr))
+		}
+
+		tokenIssued.Inc()
+		log.Info("token refreshed",
+			zap.String("user_id", user.ID),
+			zap.String("tenant", tenant.Slug),
+		)
+
+		jsonOK(w, tokenResponse{
+			AccessToken:  newToken,
+			RefreshToken: newRawRefresh,
+			ExpiresIn:    int(appjwt.AccessTokenTTL.Seconds()),
+			TokenType:    "Bearer",
+		})
 	}
 }
 
@@ -406,7 +499,6 @@ func makeLogoutHandler(pg *postgres.Client, jwtSvc *appjwt.Service, log *zap.Log
 			jsonError(w, "invalid token", http.StatusUnauthorized)
 			return
 		}
-		// claims.UserID() يرجع RegisteredClaims.Subject
 		if revokeErr := pg.RevokeSession(r.Context(), claims.SessionID, claims.UserID(), "logout"); revokeErr != nil {
 			log.Warn("revoke session failed", zap.Error(revokeErr))
 		}
