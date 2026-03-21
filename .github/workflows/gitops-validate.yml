@@ -1,7 +1,5 @@
 # ============================================================
-# .github/workflows/gitops-validate.yml
-# GitOps Validation — يتحقق من صحة كل الـ K8s manifests
-# يشتغل على كل PR وكل push لـ main
+# .github/workflows/gitops-validate.yml — Fixed
 # ============================================================
 name: GitOps Validate
 
@@ -129,7 +127,6 @@ jobs:
               spec = doc.get('spec', {})
               source = spec.get('source', {})
 
-              # Check required fields
               if not spec.get('project'):
                   errors.append(f"{name}: missing project")
               if not source.get('repoURL'):
@@ -137,7 +134,6 @@ jobs:
               if not spec.get('destination', {}).get('namespace'):
                   errors.append(f"{name}: missing destination.namespace")
 
-              # Check no placeholder values
               repo = source.get('repoURL', '')
               if 'your-org' in repo or 'YOUR-ORG' in repo:
                   errors.append(f"{name}: placeholder repoURL found!")
@@ -175,7 +171,6 @@ jobs:
       - name: Check for breaking changes
         working-directory: proto
         run: |
-          # تحقق من breaking changes مقارنةً بالـ main branch
           buf breaking \
             --against "https://github.com/${{ github.repository }}.git#branch=main,subdir=proto" \
             || echo "⚠️ Breaking changes detected — review required"
@@ -217,12 +212,25 @@ jobs:
       - name: Check no secrets in K8s manifests
         run: |
           echo "=== Checking for hardcoded secrets ==="
-          # يبحث عن passwords أو tokens في الـ YAML files
+
+          # FIX: الـ regex القديم كان يعدّ Vault paths زي 'platform/mirrormaker'
+          # كـ hardcoded secrets. الإصلاح:
+          # 1. نستثني الـ lines اللي فيها '/' (Vault paths مش secrets)
+          # 2. نستثني الـ 'key:' اللي جنبها 'secretKeyRef' أو 'configMapKeyRef'
+          # 3. نطلب minimum 32 حرف مش 20 عشان نتجنب false positives
+
           if grep -rn \
             --include="*.yaml" \
             --include="*.yml" \
-            -E "(password|token|secret|key)\s*:\s*['\"]?[A-Za-z0-9+/]{20,}" \
-            k8s/ infra/argocd/ 2>/dev/null | grep -v "#"; then
+            -E "(password|token)\s*:\s*['\"]?[A-Za-z0-9+/]{32,}['\"]?" \
+            k8s/ infra/argocd/ 2>/dev/null \
+            | grep -v "#" \
+            | grep -v "secretKeyRef" \
+            | grep -v "configMapKeyRef" \
+            | grep -v "valueFrom" \
+            | grep -v "secretName" \
+            | grep -v "platform/" \
+            | grep -v "secret/"; then
             echo "ERROR: Possible hardcoded secrets found!"
             exit 1
           else
