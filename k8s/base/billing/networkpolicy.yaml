@@ -1,0 +1,75 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: billing
+  namespace: platform
+  labels:
+    app: billing
+spec:
+  podSelector:
+    matchLabels:
+      app: billing
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # ── من API Gateway (HTTP :9093) ─────────────────────────
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: envoy-gateway-system
+      ports:
+        - port: 9093
+          protocol: TCP
+    # ── من ingress-nginx للـ canary routing ────────────────
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 9093
+          protocol: TCP
+    # ── من monitoring للـ metrics scraping ─────────────────
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 9093
+          protocol: TCP
+    # ── من services داخل platform (للـ usage recording) ────
+    - from:
+        - podSelector: {}
+      ports:
+        - port: 9093
+          protocol: TCP
+  egress:
+    # ── Postgres ────────────────────────────────────────────
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - port: 5432
+          protocol: TCP
+    # ── Stripe API (HTTPS outbound) ──────────────────────────
+    - ports:
+        - port: 443
+          protocol: TCP
+    # ── OTel Collector ───────────────────────────────────────
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+        - podSelector:
+            matchLabels:
+              app: otel-collector
+      ports:
+        - port: 4317
+          protocol: TCP
+    # ── DNS ──────────────────────────────────────────────────
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
