@@ -1,7 +1,5 @@
 # ============================================================
-# release.yml — Semantic Versioning & Release Automation
-# يتشغل تلقائياً على كل push لـ main
-# ينشئ git tag بـ v1.2.3 ويبني Docker images بالـ version
+# .github/workflows/release.yml — Fixed
 # ============================================================
 name: Release
 
@@ -27,7 +25,7 @@ permissions:
   id-token: write
 
 jobs:
-  # ─── حساب الـ version الجديد ─────────────────────────────
+  # ─── حساب الـ version ────────────────────────────────────
   version:
     name: Calculate Version
     runs-on: ubuntu-latest
@@ -38,23 +36,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # لازم fetch-depth: 0 عشان يجيب كل الـ tags
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Calculate next version
         id: semver
         run: |
-          # جيب آخر tag
-          LATEST=$(git tag --sort=-v:refname | grep '^v' | head -1 || echo "v0.0.0")
+          # جيب آخر tag — FIX: head -1 بيرجع exit 0 حتى لو فاضي
+          # الحل: فحص isEmpty بشكل صريح
+          LATEST=$(git tag --sort=-v:refname | grep '^v' | head -1)
+          if [ -z "$LATEST" ]; then
+            LATEST="v0.0.0"
+          fi
           echo "Latest tag: $LATEST"
 
-          # فصّل الأجزاء
           VERSION=${LATEST#v}
           MAJOR=$(echo $VERSION | cut -d. -f1)
           MINOR=$(echo $VERSION | cut -d. -f2)
           PATCH=$(echo $VERSION | cut -d. -f3)
 
-          # حدد نوع الـ bump من الـ commit messages
+          # حدد نوع الـ bump
           BUMP="${{ github.event.inputs.bump }}"
           if [ -z "$BUMP" ]; then
             COMMITS=$(git log ${LATEST}..HEAD --pretty=format:"%s" 2>/dev/null || git log --pretty=format:"%s")
@@ -69,7 +70,6 @@ jobs:
 
           echo "Bump type: $BUMP"
 
-          # احسب الـ version الجديد
           case $BUMP in
             major) MAJOR=$((MAJOR+1)); MINOR=0; PATCH=0 ;;
             minor) MINOR=$((MINOR+1)); PATCH=0 ;;
@@ -79,10 +79,15 @@ jobs:
           NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
           NEW_TAG="v${NEW_VERSION}"
 
+          # تأكد إن الـ version مش فاضي
+          if [ -z "$NEW_VERSION" ]; then
+            echo "ERROR: new_version is empty!"
+            exit 1
+          fi
+
           echo "new_version=${NEW_VERSION}" >> $GITHUB_OUTPUT
           echo "tag=${NEW_TAG}" >> $GITHUB_OUTPUT
 
-          # اعمل changelog من الـ commits
           CHANGELOG=$(git log ${LATEST}..HEAD --pretty=format:"- %s (%h)" 2>/dev/null | head -20 || echo "- Initial release")
           echo "changelog<<EOF" >> $GITHUB_OUTPUT
           echo "$CHANGELOG" >> $GITHUB_OUTPUT
@@ -90,16 +95,35 @@ jobs:
 
           echo "New version: $NEW_TAG"
 
-  # ─── بناء ونشر Docker images بالـ version ───────────────
+      - name: Verify version is not empty
+        run: |
+          if [ -z "${{ steps.semver.outputs.new_version }}" ]; then
+            echo "ERROR: new_version output is empty!"
+            exit 1
+          fi
+          echo "Version verified: ${{ steps.semver.outputs.new_version }}"
+
+  # ─── بناء ونشر Docker images ─────────────────────────────
   build-and-tag:
-    name: Build, Tag & Sign Images
+    name: Build, Tag & Sign Images (${{ matrix.service }})
     needs: version
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        service: [ingestion, processing]
+        include:
+          # Ingestion: context = services/ingestion (Dockerfile لا يحتاج proto)
+          - service: ingestion
+            context: services/ingestion
+            dockerfile: services/ingestion/Dockerfile.arm64
+          # Processing: context = . (repo root) لأن Dockerfile يحتاج proto/
+          - service: processing
+            context: .
+            dockerfile: services/processing/Dockerfile.arm64
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3
@@ -116,18 +140,21 @@ jobs:
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Set service context
-        id: ctx
+      - name: Verify version before build
         run: |
-          echo "context=services/${{ matrix.service }}" >> $GITHUB_OUTPUT
-          echo "dockerfile=services/${{ matrix.service }}/Dockerfile.arm64" >> $GITHUB_OUTPUT
+          VERSION="${{ needs.version.outputs.new_version }}"
+          if [ -z "$VERSION" ]; then
+            echo "ERROR: Version is empty — aborting build"
+            exit 1
+          fi
+          echo "Building version: $VERSION"
 
       - name: Build & Push — ${{ matrix.service }}
         id: build
         uses: docker/build-push-action@v5
         with:
-          context: ${{ steps.ctx.outputs.context }}
-          file: ${{ steps.ctx.outputs.dockerfile }}
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
           platforms: linux/arm64,linux/amd64
           push: true
           tags: |
@@ -146,7 +173,7 @@ jobs:
           cosign sign --yes \
             ghcr.io/${{ github.repository }}/${{ matrix.service }}@${{ steps.build.outputs.digest }}
 
-  # ─── إنشاء الـ Git Tag والـ GitHub Release ──────────────
+  # ─── GitHub Release ──────────────────────────────────────
   create-release:
     name: Create GitHub Release
     needs: [version, build-and-tag]
@@ -164,9 +191,13 @@ jobs:
 
       - name: Create Git Tag
         run: |
-          git tag -a ${{ needs.version.outputs.tag }} \
-            -m "Release ${{ needs.version.outputs.tag }}"
-          git push origin ${{ needs.version.outputs.tag }}
+          TAG="${{ needs.version.outputs.tag }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists — skipping"
+          else
+            git tag -a "$TAG" -m "Release $TAG"
+            git push origin "$TAG"
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -181,20 +212,16 @@ jobs:
             ## Docker Images
 
             ```bash
-            # Ingestion Service
             docker pull ghcr.io/${{ github.repository }}/ingestion:${{ needs.version.outputs.new_version }}
-
-            # Processing Service
             docker pull ghcr.io/${{ github.repository }}/processing:${{ needs.version.outputs.new_version }}
             ```
 
-            ## Verify Image Signatures
+            ## Verify Signatures
             ```bash
             cosign verify ghcr.io/${{ github.repository }}/ingestion:${{ needs.version.outputs.new_version }}
             cosign verify ghcr.io/${{ github.repository }}/processing:${{ needs.version.outputs.new_version }}
             ```
           draft: false
           prerelease: false
-          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
