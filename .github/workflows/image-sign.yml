@@ -1,6 +1,5 @@
 # ============================================================
-# image-sign.yml — Build, Push & Sign Docker Images
-# يتشغل على كل push لـ main أو manually
+# .github/workflows/image-sign.yml — Fixed
 # ============================================================
 name: Build & Sign Images
 
@@ -23,7 +22,7 @@ permissions:
   id-token: write
 
 jobs:
-  # ─── Ingestion Service ────────────────────────────────────
+  # ─── Ingestion: context = services/ingestion ─────────────
   build-sign-ingestion:
     name: Build & Sign — Ingestion
     runs-on: ubuntu-latest
@@ -33,6 +32,9 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          # لازم fetch-depth: 0 عشان يجيب الـ tags
+          fetch-depth: 0
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3
@@ -52,13 +54,23 @@ jobs:
       - name: Get current version
         id: version
         run: |
-          LATEST=$(git tag --sort=-v:refname | grep '^v' | head -1 || echo "v0.0.0")
-          echo "version=${LATEST#v}" >> $GITHUB_OUTPUT
+          # FIX: head -1 بيرجع exit 0 حتى لو فاضي — لازم فحص isEmpty
+          LATEST=$(git tag --sort=-v:refname | grep '^v' | head -1)
+          if [ -z "$LATEST" ]; then
+            LATEST="v0.0.0"
+          fi
+          VERSION="${LATEST#v}"
+          if [ -z "$VERSION" ]; then
+            VERSION="0.0.0"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Current version: $VERSION"
 
       - name: Build & Push — Ingestion
         id: build-ingestion
         uses: docker/build-push-action@v5
         with:
+          # Ingestion Dockerfile: لا يحتاج proto — context = services/ingestion
           context: services/ingestion
           file: services/ingestion/Dockerfile.arm64
           platforms: linux/arm64,linux/amd64
@@ -79,7 +91,7 @@ jobs:
           cosign sign --yes \
             ghcr.io/${{ github.repository }}/ingestion@${{ steps.build-ingestion.outputs.digest }}
 
-  # ─── Processing Service ───────────────────────────────────
+  # ─── Processing: context = . (repo root) ─────────────────
   build-sign-processing:
     name: Build & Sign — Processing
     runs-on: ubuntu-latest
@@ -89,6 +101,9 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          # لازم fetch-depth: 0 عشان يجيب الـ tags
+          fetch-depth: 0
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3
@@ -108,14 +123,25 @@ jobs:
       - name: Get current version
         id: version
         run: |
-          LATEST=$(git tag --sort=-v:refname | grep '^v' | head -1 || echo "v0.0.0")
-          echo "version=${LATEST#v}" >> $GITHUB_OUTPUT
+          # FIX: head -1 بيرجع exit 0 حتى لو فاضي — لازم فحص isEmpty
+          LATEST=$(git tag --sort=-v:refname | grep '^v' | head -1)
+          if [ -z "$LATEST" ]; then
+            LATEST="v0.0.0"
+          fi
+          VERSION="${LATEST#v}"
+          if [ -z "$VERSION" ]; then
+            VERSION="0.0.0"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Current version: $VERSION"
 
       - name: Build & Push — Processing
         id: build-processing
         uses: docker/build-push-action@v5
         with:
-          context: services/processing
+          # FIX: Processing Dockerfile يحتاج proto/ → context = . (repo root)
+          # Dockerfile.arm64 يقول: COPY services/processing/ . و COPY proto/ ../../proto/
+          context: .
           file: services/processing/Dockerfile.arm64
           platforms: linux/arm64,linux/amd64
           push: true
