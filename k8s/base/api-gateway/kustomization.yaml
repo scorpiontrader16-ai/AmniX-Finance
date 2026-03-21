@@ -7,5 +7,6 @@ resources:
   - grpc-route-processing.yaml
   - http-route-health.yaml
   - http-route-auth.yaml
+  - http-route-billing.yaml
   - security-policy-jwt.yaml
   - backend-traffic-policy-ratelimit.yaml
