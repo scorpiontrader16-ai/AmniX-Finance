@@ -1,22 +1,12 @@
-// scripts/load-tests/ingestion.js
-// k6 Load Testing — Ingestion + Processing Services
-//
-// داخل cluster:
-//   INGESTION_URL  = http://ingestion-stable.platform.svc.cluster.local:9091
-//   PROCESSING_URL = http://processing-stable.platform.svc.cluster.local:9093
-//
-// محلياً عبر port-forward:
-//   INGESTION_URL  = http://localhost:9091
-//   PROCESSING_URL = http://localhost:9093
-//
-// تشغيل:
-//   k6 run --env SCENARIO=smoke  --env INGESTION_URL=http://... ingestion.js
-//   k6 run --env SCENARIO=load   --env INGESTION_URL=http://... ingestion.js
-//   k6 run --env SCENARIO=stress --env INGESTION_URL=http://... ingestion.js
+// scripts/load-tests/ingestion.js — Fixed
+// FIX 1: INGESTION_URL بدل BASE_URL
+// FIX 2: default() يتوقف لو setup() رجع skipped=true
+// FIX 3: Processing بيستخدم HTTP port 9093 مش gRPC 50051
 
 import http from 'k6/http';
 import { check, sleep, group } from 'k6';
 import { Rate, Trend, Counter } from 'k6/metrics';
+import exec from 'k6/execution';
 
 // ── Custom Metrics ──────────────────────────────────────────────────────
 const errorRate         = new Rate('error_rate');
@@ -26,9 +16,7 @@ const eventsAccepted    = new Counter('events_accepted');
 const eventsRejected    = new Counter('events_rejected');
 
 // ── Config ──────────────────────────────────────────────────────────────
-// FIX: الـ ports صح:
-//   Ingestion  HTTP port = 9091 (كان 8080)
-//   Processing HTTP port = 9093 (كان 50051 — ده gRPC مش HTTP)
+// FIX: INGESTION_URL و PROCESSING_URL (بدل BASE_URL)
 const INGESTION_URL  = __ENV.INGESTION_URL
   || 'http://ingestion-stable.platform.svc.cluster.local:9091';
 const PROCESSING_URL = __ENV.PROCESSING_URL
@@ -119,7 +107,14 @@ const BASE_HEADERS = {
 };
 
 // ── Main ────────────────────────────────────────────────────────────────
-export default function () {
+export default function (data) {
+  // FIX: لو setup() رجع skipped=true → abort فوراً مش نكمل
+  // ده بيمنع إن الـ requests تشتغل على cluster URL مش موجودة
+  if (data && data.skipped) {
+    exec.test.abort('No real cluster available — set INGESTION_URL env var');
+    return;
+  }
+
   const payload = generateEvent();
 
   // ── Ingestion ───────────────────────────────────────────────────
@@ -155,16 +150,12 @@ export default function () {
 
   sleep(0.1);
 
-  // ── Processing health check فقط — مش gRPC مباشرة ──────────────
-  // FIX: port 9093 هو الـ HTTP/metrics port للـ processing
-  // الـ gRPC على 50051 ومش ممكن استدعاؤه بـ HTTP
+  // ── Processing — HTTP healthz على port 9093 ─────────────────────
   group('processing-service', () => {
     const start = Date.now();
     const res = http.get(
       `${PROCESSING_URL}/healthz`,
-      {
-        tags: { service: 'processing' },
-      }
+      { tags: { service: 'processing' } }
     );
 
     processingLatency.add(Date.now() - start);
@@ -180,43 +171,39 @@ export default function () {
   sleep(0.1);
 }
 
-// ── Setup — يتحقق إن الـ services شغالة قبل الـ test ──────────────────
+// ── Setup ───────────────────────────────────────────────────────────────
 export function setup() {
-  // FIX: لو الـ URL هو الـ default (cluster URL) وإحنا في CI بدون K8s
-  // نتجاهل الـ health check ونكمل
-  const isDefaultUrl = INGESTION_URL.includes('svc.cluster.local');
+  const isClusterUrl = INGESTION_URL.includes('svc.cluster.local');
 
-  if (isDefaultUrl) {
-    console.log('⚠️  Running with cluster URLs — skipping connectivity check');
-    console.log('   Set INGESTION_URL and PROCESSING_URL env vars to test against real endpoints');
-    return { ingestionUrl: INGESTION_URL, processingUrl: PROCESSING_URL, skipped: true };
+  // FIX: لو cluster URL (مش موجودة في CI) → skip بـ flag صريح
+  // الـ default() function هتشوف الـ flag وتعمل abort
+  if (isClusterUrl) {
+    console.log('⚠️  Cluster URL detected — skipping test (no K8s cluster in CI)');
+    console.log('   To run against real cluster: set INGESTION_URL and PROCESSING_URL');
+    return { skipped: true };
   }
 
   const ingRes  = http.get(`${INGESTION_URL}/healthz`);
   const procRes = http.get(`${PROCESSING_URL}/healthz`);
 
   if (ingRes.status !== 200) {
-    throw new Error(
-      `Ingestion not ready — HTTP ${ingRes.status} @ ${INGESTION_URL}/healthz`
-    );
+    throw new Error(`Ingestion not ready — HTTP ${ingRes.status} @ ${INGESTION_URL}/healthz`);
   }
   if (procRes.status !== 200) {
-    throw new Error(
-      `Processing not ready — HTTP ${procRes.status} @ ${PROCESSING_URL}/healthz`
-    );
+    throw new Error(`Processing not ready — HTTP ${procRes.status} @ ${PROCESSING_URL}/healthz`);
   }
 
   console.log(`✓ ingestion  @ ${INGESTION_URL}`);
   console.log(`✓ processing @ ${PROCESSING_URL}`);
   console.log(`→ scenario: ${SCENARIO}`);
 
-  return { ingestionUrl: INGESTION_URL, processingUrl: PROCESSING_URL, skipped: false };
+  return { skipped: false, ingestionUrl: INGESTION_URL, processingUrl: PROCESSING_URL };
 }
 
 // ── Teardown ────────────────────────────────────────────────────────────
 export function teardown(data) {
-  if (data.skipped) {
-    console.log('⚠️  Test was skipped — no real cluster available');
+  if (!data || data.skipped) {
+    console.log('ℹ️  Test skipped — no real cluster available');
     return;
   }
   console.log(`✓ done | ingestion: ${data.ingestionUrl} | processing: ${data.processingUrl}`);
