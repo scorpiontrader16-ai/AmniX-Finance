@@ -1,15 +1,14 @@
-# ============================================================
-# .github/workflows/gitops-validate.yml — Final
-# ============================================================
 name: GitOps Validate
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
       - 'k8s/**'
       - 'infra/argocd/**'
       - 'proto/**'
+      - '.github/workflows/gitops-validate.yml'
   pull_request:
     branches: [main]
     paths:
@@ -25,7 +24,7 @@ permissions:
   contents: read
 
 jobs:
-  # ─── 1. Kustomize Build ─────────────────────────────────
+
   kustomize-build:
     name: Kustomize Build
     runs-on: ubuntu-latest
@@ -44,20 +43,18 @@ jobs:
           echo "=== Building k8s/base ==="
           kustomize build k8s/base
 
-      - name: Build k8s/overlays/production (if exists)
-        # FIX: لو مفيش kustomization.yaml في overlays/production → skip بدل error
+      - name: Build k8s/overlays/production
         run: |
           echo "=== Building k8s/overlays/production ==="
           if [ -f "k8s/overlays/production/kustomization.yaml" ] || \
              [ -f "k8s/overlays/production/kustomization.yml" ]; then
             kustomize build k8s/overlays/production
-            echo "✅ overlays/production built successfully"
+            echo "overlays/production built successfully"
           else
-            echo "⚠️  k8s/overlays/production/kustomization.yaml not found — skipping"
-            echo "   (Each service overlay has its own kustomization.yaml)"
+            echo "k8s/overlays/production kustomization not found - skipping"
+            echo "Each service has its own kustomization in overlays/production/{service}/"
           fi
 
-  # ─── 2. Kubeval — Schema Validation ─────────────────────
   kubeval:
     name: Kubeval — Schema Validation
     runs-on: ubuntu-latest
@@ -76,10 +73,7 @@ jobs:
           curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.4/kubeconform-linux-amd64.tar.gz \
             | tar xz -C /usr/local/bin
 
-      - name: Validate k8s/base manifests
-        # FIX: حذف --strict لأنه بيرفض Argo Rollouts و Cilium CRDs
-        # بسبب outdated schemas في CRDs-catalog مش بسبب error حقيقي
-        # --ignore-missing-schemas كافية للـ CRDs اللي مش في الـ catalog
+      - name: Validate k8s/base
         run: |
           kustomize build k8s/base | kubeconform \
             --ignore-missing-schemas \
@@ -88,7 +82,7 @@ jobs:
             --schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
             --summary
 
-      - name: Validate production overlays (if exist)
+      - name: Validate production overlays
         run: |
           for overlay in k8s/overlays/production/ingestion k8s/overlays/production/processing; do
             if [ -f "$overlay/kustomization.yaml" ]; then
@@ -102,7 +96,6 @@ jobs:
             fi
           done
 
-  # ─── 3. ArgoCD App Validation ────────────────────────────
   argocd-validate:
     name: ArgoCD Apps Validation
     runs-on: ubuntu-latest
@@ -126,7 +119,7 @@ jobs:
 
           apps_file = "infra/argocd/apps/applications.yaml"
           if not os.path.exists(apps_file):
-              print(f"WARN: {apps_file} not found — skipping")
+              print(f"WARN: {apps_file} not found - skipping")
               sys.exit(0)
 
           errors = []
@@ -151,15 +144,16 @@ jobs:
               if 'your-org' in repo or 'YOUR-ORG' in repo:
                   errors.append(f"{name}: placeholder repoURL found!")
 
-              print(f"  ✅ {name}: valid")
+              print(f"  OK: {name}")
 
           if errors:
-              for e in errors: print(f"  ❌ {e}")
+              for e in errors:
+                  print(f"  ERROR: {e}")
               sys.exit(1)
-          print(f"✅ All ArgoCD apps valid")
+
+          print(f"All ArgoCD apps valid")
           PYEOF
 
-  # ─── 4. Proto Lint ───────────────────────────────────────
   proto-lint:
     name: Proto Lint & Breaking Change Check
     runs-on: ubuntu-latest
@@ -183,9 +177,8 @@ jobs:
         run: |
           buf breaking \
             --against "https://github.com/${{ github.repository }}.git#branch=main,subdir=proto" \
-            || echo "⚠️ Breaking changes detected — review required"
+            || echo "Breaking changes detected - review required"
 
-  # ─── 5. Security Policy Check ────────────────────────────
   security-policy:
     name: Security Policy Check
     runs-on: ubuntu-latest
@@ -206,9 +199,9 @@ jobs:
           missing=0
           for f in "${required_files[@]}"; do
             if [ -f "$f" ]; then
-              echo "  ✅ $f"
+              echo "  OK: $f"
             else
-              echo "  ❌ Missing: $f"
+              echo "  MISSING: $f"
               missing=$((missing + 1))
             fi
           done
@@ -220,7 +213,6 @@ jobs:
       - name: Check no hardcoded secrets in K8s manifests
         run: |
           echo "=== Checking for hardcoded secrets ==="
-          # FIX: threshold رفعناه لـ 32 حرف + استثناء Vault paths و secretKeyRef
           if grep -rn \
             --include="*.yaml" \
             --include="*.yml" \
@@ -236,5 +228,5 @@ jobs:
             echo "ERROR: Possible hardcoded secrets found!"
             exit 1
           else
-            echo "  ✅ No hardcoded secrets found"
+            echo "  OK: No hardcoded secrets found"
           fi
