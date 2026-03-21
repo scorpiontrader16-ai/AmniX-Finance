@@ -1,6 +1,7 @@
 # k8s/base/hydration/job.yaml
-# Hydration Job — يشتغل قبل الـ Rollout traffic
+# Hydration Job — يشغّل warm-up requests قبل الـ Rollout traffic
 # بيتشغّل كـ PreSync hook في ArgoCD
+# الهدف: يمنع cold start latency في الـ Rust processing engine
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -28,7 +29,8 @@ spec:
         runAsUser: 1000
       containers:
         - name: hydration
-          image: ghcr.io/aminpola2001-ctrl/youtuop/hydration:latest
+          # الـ image tag بيتحدث تلقائياً من release.yml workflow
+          image: ghcr.io/scorpiontrader16-ai/youtuop-1/hydration:1.0.0
           env:
             - name: PROCESSING_ADDR
               value: "processing-stable:50051"
@@ -58,3 +60,7 @@ kind: ServiceAccount
 metadata:
   name: hydration
   namespace: platform
+  labels:
+    app: hydration
+# مش محتاج يماونت الـ service account token
+automountServiceAccountToken: false
