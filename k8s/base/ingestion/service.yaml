@@ -6,18 +6,20 @@ metadata:
   labels:
     app: ingestion
   annotations:
+    # Topology Aware Routing — يوجّه الـ traffic لـ pods في نفس الـ AZ أولاً
+    # يقلل cross-AZ latency وتكلفة الـ network
     service.kubernetes.io/topology-aware-hints: "auto"
 spec:
   selector:
     app: ingestion
   ports:
     - name: grpc
-      port: 8080
-      targetPort: 8080
+      port: 8090
+      targetPort: 8090
       protocol: TCP
-    - name: metrics
-      port: 9090
-      targetPort: 9090
+    - name: http
+      port: 9091
+      targetPort: 9091
       protocol: TCP
   type: ClusterIP
 ---
@@ -35,11 +37,11 @@ spec:
     app: ingestion
   ports:
     - name: grpc
-      port: 8080
-      targetPort: 8080
+      port: 8090
+      targetPort: 8090
       protocol: TCP
-    - name: metrics
-      port: 9090
-      targetPort: 9090
+    - name: http
+      port: 9091
+      targetPort: 9091
       protocol: TCP
   type: ClusterIP
