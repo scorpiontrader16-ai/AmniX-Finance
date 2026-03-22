@@ -1,7 +1,5 @@
 ---
 # ── JWT protection للـ ingestion gRPC routes ────────────────────────────────
-# auth-routes و billing-webhook مش محتاجين JWT
-# فبنطبق الحماية على كل route تانية بشكل منفصل
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: SecurityPolicy
 metadata:
@@ -70,7 +68,6 @@ spec:
 
 ---
 # ── JWT protection للـ billing API routes ────────────────────────────────────
-# billing-webhook route مش محمي هنا — Stripe بيتحقق بـ signature في الـ code
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: SecurityPolicy
 metadata:
@@ -83,6 +80,41 @@ spec:
     group: gateway.networking.k8s.io
     kind: HTTPRoute
     name: billing-routes
+    namespace: platform
+  jwt:
+    providers:
+      - name: youtuop-auth
+        issuer: "https://auth.youtuop-1.com"
+        remoteJWKS:
+          uri: "http://auth-stable.platform.svc.cluster.local:9092/.well-known/jwks.json"
+        claimToHeaders:
+          - claim: sub
+            header: x-user-id
+          - claim: tid
+            header: x-tenant-id
+          - claim: tslug
+            header: x-tenant-slug
+          - claim: plan
+            header: x-plan
+          - claim: role
+            header: x-role
+          - claim: email
+            header: x-user-email
+
+---
+# ── JWT protection للـ notifications routes ───────────────────────────────────
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: jwt-policy-notifications
+  namespace: platform
+  labels:
+    app.kubernetes.io/component: api-gateway
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: notifications-routes
     namespace: platform
   jwt:
     providers:
