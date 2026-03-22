@@ -1,0 +1,90 @@
+---
+# ── Velero Namespace ─────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: velero
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    kubernetes.io/metadata.name: velero
+
+---
+# ── Velero HelmRelease (إذا كنت تستخدم Flux HelmController) ────────────────
+# لو مش بتستخدم Flux، استخدم الـ Helm CLI:
+# helm repo add vmware-tanzu https://vmware-tanzu.github.io/helm-charts
+# helm install velero vmware-tanzu/velero \
+#   --namespace velero \
+#   --values velero-values.yaml
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: velero
+  namespace: velero
+spec:
+  interval: 1h
+  chart:
+    spec:
+      chart: velero
+      version: "7.x"
+      sourceRef:
+        kind: HelmRepository
+        name: vmware-tanzu
+        namespace: flux-system
+  values:
+    image:
+      repository: velero/velero
+      tag: v1.13.0
+
+    configuration:
+      backupStorageLocation:
+        - name: aws-eu-west-1
+          provider: aws
+          bucket: platform-velero-backups-eu-west-1
+          config:
+            region: eu-west-1
+
+      volumeSnapshotLocation:
+        - name: aws-eu-west-1
+          provider: aws
+          config:
+            region: eu-west-1
+
+    initContainers:
+      - name: velero-plugin-for-aws
+        image: velero/velero-plugin-for-aws:v1.9.0
+        volumeMounts:
+          - mountPath: /target
+            name: plugins
+
+    serviceAccount:
+      annotations:
+        eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/platform-velero-dr"
+
+    resources:
+      requests:
+        cpu: 500m
+        memory: 128Mi
+      limits:
+        cpu: 1000m
+        memory: 512Mi
+
+    metrics:
+      enabled: true
+      serviceMonitor:
+        enabled: true
+
+    nodeSelector:
+      kubernetes.io/arch: arm64
+
+    schedules: {}   # الـ schedules في backup-schedules.yaml
+
+---
+# ── HelmRepository Source ───────────────────────────────────────────────────
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: vmware-tanzu
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: https://vmware-tanzu.github.io/helm-charts
