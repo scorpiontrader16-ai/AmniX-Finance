@@ -8,5 +8,6 @@ resources:
   - http-route-health.yaml
   - http-route-auth.yaml
   - http-route-billing.yaml
+  - http-route-notifications.yaml
   - security-policy-jwt.yaml
   - backend-traffic-policy-ratelimit.yaml
