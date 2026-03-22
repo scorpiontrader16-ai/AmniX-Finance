@@ -8,6 +8,7 @@ resources:
   - billing
   - notifications
   - control-plane
+  - feature-flags
   - processing
   - hydration
   - cilium
