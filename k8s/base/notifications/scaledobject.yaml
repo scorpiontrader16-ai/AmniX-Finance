@@ -1,0 +1,23 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: notifications
+  namespace: platform
+  labels:
+    app: notifications
+spec:
+  scaleTargetRef:
+    apiVersion: argoproj.io/v1alpha1
+    kind: Rollout
+    name: notifications
+  minReplicaCount: 3
+  maxReplicaCount: 10
+  cooldownPeriod: 300
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://victoria-metrics.monitoring.svc.cluster.local:8428
+        metricName: notifications_http_requests_rate
+        query: |
+          sum(rate(notifications_http_request_duration_seconds_count[2m]))
+        threshold: "100"
