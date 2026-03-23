@@ -179,6 +179,25 @@ jobs:
             --ignore-unfixed \
             services/feature-flags
 
+  trivy-developer-portal:
+    name: Trivy — Developer Portal Service
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin v0.69.3
+      - name: Run Trivy on developer-portal
+        run: |
+          trivy fs \
+            --severity CRITICAL,HIGH \
+            --exit-code 1 \
+            --ignore-unfixed \
+            services/developer-portal
+
   codeql:
     name: CodeQL — Go Analysis
     runs-on: ubuntu-latest
@@ -407,6 +426,35 @@ jobs:
         run: go vet ./...
       - name: Test
         working-directory: services/feature-flags
+        run: go test ./... -timeout 60s
+
+  build-developer-portal:
+    name: Go — Developer Portal Service
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go 1.24
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: services/developer-portal/go.mod
+      - name: Tidy dependencies
+        working-directory: services/developer-portal
+        run: go mod tidy
+      - name: Build
+        working-directory: services/developer-portal
+        run: |
+          CGO_ENABLED=0 go build \
+            -ldflags="-s -w -X main.version=ci" \
+            -trimpath \
+            ./cmd/server
+      - name: Vet
+        working-directory: services/developer-portal
+        run: go vet ./...
+      - name: Test
+        working-directory: services/developer-portal
         run: go test ./... -timeout 60s
 
   build-rust:
