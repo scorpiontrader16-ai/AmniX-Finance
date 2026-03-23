@@ -198,6 +198,25 @@ jobs:
             --ignore-unfixed \
             services/developer-portal
 
+  trivy-realtime:
+    name: Trivy — Realtime Service
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin v0.69.3
+      - name: Run Trivy on realtime
+        run: |
+          trivy fs \
+            --severity CRITICAL,HIGH \
+            --exit-code 1 \
+            --ignore-unfixed \
+            services/realtime
+
   codeql:
     name: CodeQL — Go Analysis
     runs-on: ubuntu-latest
@@ -455,6 +474,35 @@ jobs:
         run: go vet ./...
       - name: Test
         working-directory: services/developer-portal
+        run: go test ./... -timeout 60s
+
+  build-realtime:
+    name: Go — Realtime Service
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go 1.24
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: services/realtime/go.mod
+      - name: Tidy dependencies
+        working-directory: services/realtime
+        run: go mod tidy
+      - name: Build
+        working-directory: services/realtime
+        run: |
+          CGO_ENABLED=0 go build \
+            -ldflags="-s -w -X main.version=ci" \
+            -trimpath \
+            ./cmd/server
+      - name: Vet
+        working-directory: services/realtime
+        run: go vet ./...
+      - name: Test
+        working-directory: services/realtime
         run: go test ./... -timeout 60s
 
   build-rust:
