@@ -1,0 +1,58 @@
+---
+# ── ML Engine API routes (JWT protected) ─────────────────────────────────────
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ml-engine-routes
+  namespace: platform
+  labels:
+    app.kubernetes.io/name: ml-engine
+    app.kubernetes.io/component: api-gateway
+spec:
+  parentRefs:
+    - name: platform-gateway
+      namespace: platform
+      sectionName: https
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /v1/ml
+      backendRefs:
+        - name: ml-engine-stable
+          port: 9098
+          weight: 90
+        - name: ml-engine-canary
+          port: 9098
+          weight: 10
+
+---
+# ── JWT SecurityPolicy for ml-engine ─────────────────────────────────────────
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: jwt-policy-ml-engine
+  namespace: platform
+  labels:
+    app.kubernetes.io/component: api-gateway
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: ml-engine-routes
+    namespace: platform
+  jwt:
+    providers:
+      - name: youtuop-auth
+        issuer: "https://auth.youtuop-1.com"
+        remoteJWKS:
+          uri: "http://auth-stable.platform.svc.cluster.local:9092/.well-known/jwks.json"
+        claimToHeaders:
+          - claim: sub
+            header: x-user-id
+          - claim: tid
+            header: x-tenant-id
+          - claim: plan
+            header: x-plan
+          - claim: role
+            header: x-role
