@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tenant-operator
+  namespace: platform
+spec:
+  podSelector:
+    matchLabels:
+      app: tenant-operator
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: platform
+          podSelector:
+            matchLabels:
+              app: api-gateway
+      ports:
+        - port: 9099
+          protocol: TCP
