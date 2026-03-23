@@ -1,0 +1,59 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: tenant-operator
+  namespace: platform
+  labels:
+    app: tenant-operator
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: tenant-operator
+  template:
+    metadata:
+      labels:
+        app: tenant-operator
+    spec:
+      serviceAccountName: tenant-operator
+      nodeSelector:
+        kubernetes.io/arch: arm64
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: tenant-operator
+          image: ghcr.io/scorpiontrader16-ai/youtuop-1/tenant-operator:1.0.0
+          env:
+            - name: POSTGRES_CONN
+              valueFrom:
+                secretKeyRef:
+                  name: tenant-operator-secrets
+                  key: postgres_conn
+            - name: KAFKA_BROKERS
+              value: "redpanda.platform.svc.cluster.local:9092"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+  strategy:
+    canary:
+      canaryService: tenant-operator-canary
+      stableService: tenant-operator-stable
+      steps:
+        - setWeight: 10
+        - pause: { duration: 2m }
+        - setWeight: 50
+        - pause: { duration: 5m }
+        - setWeight: 100
+      autoPromotionEnabled: false
