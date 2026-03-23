@@ -1,0 +1,14 @@
+# syntax=docker/dockerfile:1.7
+FROM arm64v8/golang:1.24-alpine AS builder
+WORKDIR /app
+RUN apk add --no-cache git ca-certificates
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -trimpath -o /tenant-operator ./cmd/main.go
+
+FROM arm64v8/alpine:3.20
+RUN apk add --no-cache ca-certificates tzdata
+COPY --from=builder /tenant-operator /tenant-operator
+USER 1000:1000
+ENTRYPOINT ["/tenant-operator"]
