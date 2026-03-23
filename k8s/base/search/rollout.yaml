@@ -103,20 +103,20 @@ spec:
         - pause: { duration: 2m }
         - analysis:
             templates:
-              - templateName: error-rate-check
+              - templateName: error-rate-check-search   # ← تم التغيير
         - setWeight: 50
         - pause: { duration: 5m }
         - analysis:
             templates:
-              - templateName: error-rate-check
-              - templateName: latency-check
+              - templateName: error-rate-check-search   # ← تم التغيير
+              - templateName: latency-check-search      # ← سنغير الاسم أيضاً لضمان الفريدة
         - setWeight: 100
       autoPromotionEnabled: false
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: AnalysisTemplate
 metadata:
-  name: error-rate-check
+  name: error-rate-check-search   # ← اسم جديد
   namespace: platform
 spec:
   metrics:
@@ -135,7 +135,7 @@ spec:
 apiVersion: argoproj.io/v1alpha1
 kind: AnalysisTemplate
 metadata:
-  name: latency-check
+  name: latency-check-search   # ← اسم جديد
   namespace: platform
 spec:
   metrics:
