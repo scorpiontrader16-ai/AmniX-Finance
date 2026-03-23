@@ -9,6 +9,7 @@ resources:
   - notifications
   - control-plane
   - feature-flags
+  - developer-portal
   - processing
   - hydration
   - cilium
