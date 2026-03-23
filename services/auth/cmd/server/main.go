@@ -170,8 +170,9 @@ func main() {
     sessionHandler := handlers.NewSessionHandler(pgClient, log)
     apiKeyHandler := handlers.NewAPIKeyHandler(pgClient, log)
     recoveryHandler := handlers.NewRecoveryHandler(pgClient, nil, log) // nil notifier for now
+    registerHandler := handlers.NewRegisterHandler(pgClient, log)
 
-    // ── HTTP Routes ────────────────────────────────────────────────────────
+    // ── HTTP Router ────────────────────────────────────────────────────────
     mux := http.NewServeMux()
     mux.Handle("/metrics", promhttp.Handler())
 
@@ -195,7 +196,7 @@ func main() {
         fmt.Fprint(w, "ready")
     })
 
-    // JWKS endpoint
+    // JWKS endpoint (public keys for token verification)
     mux.HandleFunc("GET /.well-known/jwks.json", func(w http.ResponseWriter, _ *http.Request) {
         jwks, err := jwtSvc.JWKS()
         if err != nil {
@@ -207,36 +208,40 @@ func main() {
         w.Write(jwks) //nolint:errcheck
     })
 
-    // Existing login with Keycloak
-    mux.HandleFunc("POST /v1/auth/login", makeLoginHandler(cfg, pgClient, jwtSvc, rbacEngine, log))
+    // ── Existing login with Keycloak (SSO) ────────────────────────────────
+    mux.Handle("POST /v1/auth/login", deviceMiddleware(http.HandlerFunc(makeLoginHandler(cfg, pgClient, jwtSvc, rbacEngine, log))))
 
-    // New email/password login
-    mux.HandleFunc("POST /v1/auth/login/password", makePasswordLoginHandler(pgClient, jwtSvc, rbacEngine, bruteForce, log))
+    // ── New email/password login ──────────────────────────────────────────
+    mux.Handle("POST /v1/auth/login/password", deviceMiddleware(http.HandlerFunc(makePasswordLoginHandler(pgClient, jwtSvc, rbacEngine, bruteForce, log))))
 
-    // Refresh and logout
+    // ── Refresh & logout ──────────────────────────────────────────────────
     mux.HandleFunc("POST /v1/auth/refresh", makeRefreshHandler(pgClient, jwtSvc, rbacEngine, log))
-    mux.HandleFunc("POST /v1/auth/logout", makeLogoutHandler(pgClient, jwtSvc, log))
+    mux.Handle("POST /v1/auth/logout", deviceMiddleware(http.HandlerFunc(makeLogoutHandler(pgClient, jwtSvc, log))))
 
-    // MFA endpoints
-    mux.HandleFunc("POST /v1/auth/mfa/totp/generate", mfaHandler.GenerateTOTP)
-    mux.HandleFunc("POST /v1/auth/mfa/totp/verify", mfaHandler.VerifyTOTP)
-    mux.HandleFunc("DELETE /v1/auth/mfa/totp", mfaHandler.DisableMFA)
-    mux.HandleFunc("POST /v1/auth/mfa/sms/send", mfaHandler.SendSMS)
-    mux.HandleFunc("POST /v1/auth/mfa/sms/verify", mfaHandler.VerifySMS)
+    // ── MFA endpoints ──────────────────────────────────────────────────────
+    mux.Handle("POST /v1/auth/mfa/totp/generate", deviceMiddleware(http.HandlerFunc(mfaHandler.GenerateTOTP)))
+    mux.Handle("POST /v1/auth/mfa/totp/verify", deviceMiddleware(http.HandlerFunc(mfaHandler.VerifyTOTP)))
+    mux.Handle("DELETE /v1/auth/mfa/totp", deviceMiddleware(http.HandlerFunc(mfaHandler.DisableMFA)))
+    mux.Handle("POST /v1/auth/mfa/sms/send", deviceMiddleware(http.HandlerFunc(mfaHandler.SendSMS)))
+    mux.Handle("POST /v1/auth/mfa/sms/verify", deviceMiddleware(http.HandlerFunc(mfaHandler.VerifySMS)))
 
-    // Session management
-    mux.HandleFunc("GET /v1/auth/sessions", sessionHandler.List)
-    mux.HandleFunc("DELETE /v1/auth/sessions/{session_id}", sessionHandler.Revoke)
-    mux.HandleFunc("POST /v1/auth/sessions/revoke-all", sessionHandler.RevokeAll)
+    // ── Session management ────────────────────────────────────────────────
+    mux.Handle("GET /v1/auth/sessions", deviceMiddleware(http.HandlerFunc(sessionHandler.List)))
+    mux.Handle("DELETE /v1/auth/sessions/{session_id}", deviceMiddleware(http.HandlerFunc(sessionHandler.Revoke)))
+    mux.Handle("POST /v1/auth/sessions/revoke-all", deviceMiddleware(http.HandlerFunc(sessionHandler.RevokeAll)))
 
-    // API Keys
-    mux.HandleFunc("POST /v1/auth/api-keys", apiKeyHandler.Create)
-    mux.HandleFunc("GET /v1/auth/api-keys", apiKeyHandler.List)
-    mux.HandleFunc("DELETE /v1/auth/api-keys/{key_id}", apiKeyHandler.Revoke)
+    // ── API Keys ──────────────────────────────────────────────────────────
+    mux.Handle("POST /v1/auth/api-keys", deviceMiddleware(http.HandlerFunc(apiKeyHandler.Create)))
+    mux.Handle("GET /v1/auth/api-keys", deviceMiddleware(http.HandlerFunc(apiKeyHandler.List)))
+    mux.Handle("DELETE /v1/auth/api-keys/{key_id}", deviceMiddleware(http.HandlerFunc(apiKeyHandler.Revoke)))
+    mux.HandleFunc("POST /v1/auth/internal/api-keys/verify", apiKeyHandler.VerifyInternal) // no middleware (internal)
 
-    // Account recovery
+    // ── Account recovery ──────────────────────────────────────────────────
     mux.HandleFunc("POST /v1/auth/recovery/request", recoveryHandler.RequestReset)
     mux.HandleFunc("POST /v1/auth/recovery/reset", recoveryHandler.ResetPassword)
+
+    // ── Registration ──────────────────────────────────────────────────────
+    mux.Handle("POST /v1/auth/register", deviceMiddleware(http.HandlerFunc(registerHandler.Register)))
 
     httpServer := &http.Server{
         Addr:         fmt.Sprintf(":%d", cfg.HTTPPort),
@@ -266,7 +271,7 @@ func main() {
     log.Info("shutdown complete")
 }
 
-// ── Handlers (existing) ──────────────────────────────────────────────────
+// ── Handlers ──────────────────────────────────────────────────────────────
 
 type loginRequest struct {
     Code        string `json:"code"`
@@ -366,9 +371,10 @@ func makeLoginHandler(
         }
 
         // 7. Create session
+        fingerprint := r.Context().Value(middleware.DeviceFingerprintKey).(string)
         sessionID, err := pg.CreateSession(ctx,
             user.ID, tenant.ID,
-            r.Context().Value(middleware.DeviceFingerprintKey).(string),
+            fingerprint,
             r.RemoteAddr,
             r.Header.Get("User-Agent"),
             time.Now().Add(appjwt.RefreshTokenTTL),
@@ -422,7 +428,6 @@ func makeLoginHandler(
     }
 }
 
-// makeRefreshHandler — refresh token flow (existing)
 func makeRefreshHandler(
     pg *postgres.Client,
     jwtSvc *appjwt.Service,
@@ -538,14 +543,12 @@ func makeLogoutHandler(pg *postgres.Client, jwtSvc *appjwt.Service, log *zap.Log
             jsonError(w, "invalid token", http.StatusUnauthorized)
             return
         }
-        if revokeErr := pg.RevokeSession(r.Context(), claims.SessionID, claims.UserID(), "logout"); revokeErr != nil {
+        if revokeErr := pg.RevokeSession(r.Context(), claims.SessionID, claims.UserID(), claims.TenantID); revokeErr != nil {
             log.Warn("revoke session failed", zap.Error(revokeErr))
         }
         w.WriteHeader(http.StatusNoContent)
     }
 }
-
-// ── New password login handler ───────────────────────────────────────────
 
 func makePasswordLoginHandler(
     pg *postgres.Client,
@@ -605,9 +608,10 @@ func makePasswordLoginHandler(
             perms = []string{}
         }
 
+        fingerprint := r.Context().Value(middleware.DeviceFingerprintKey).(string)
         sessionID, err := pg.CreateSession(ctx,
             user.ID, tenant.ID,
-            r.Context().Value(middleware.DeviceFingerprintKey).(string),
+            fingerprint,
             r.RemoteAddr,
             r.Header.Get("User-Agent"),
             time.Now().Add(appjwt.RefreshTokenTTL),
