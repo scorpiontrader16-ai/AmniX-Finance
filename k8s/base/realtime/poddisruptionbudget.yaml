@@ -1,0 +1,12 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: realtime
+  namespace: platform
+  labels:
+    app: realtime
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: realtime
