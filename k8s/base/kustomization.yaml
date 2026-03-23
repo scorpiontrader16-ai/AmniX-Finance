@@ -20,3 +20,4 @@ resources:
   - api-gateway
   - sync
   - kyverno
+  - velero
