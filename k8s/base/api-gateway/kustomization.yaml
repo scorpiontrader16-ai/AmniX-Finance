@@ -13,6 +13,7 @@ resources:
   - http-route-feature-flags.yaml
   - http-route-developer-portal.yaml
   - http-route-ml-engine.yaml
+  - http-route-realtime.yaml
   - security-policy-jwt.yaml
   - security-policy-admin.yaml
   - security-policy-feature-flags.yaml
