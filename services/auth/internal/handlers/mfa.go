@@ -6,7 +6,6 @@ import (
     "net/http"
     "time"
 
-    "github.com/gorilla/mux"
     "github.com/pquerna/otp/totp"
     "github.com/twilio/twilio-go"
     twilioApi "github.com/twilio/twilio-go/rest/api/v2010"
@@ -108,7 +107,7 @@ func (h *MFAHandler) SendSMS(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    code := fmt.Sprintf("%06d", time.Now().UnixNano()%1000000) // لاستخدام أفضل استخدم crypto/rand
+    code := fmt.Sprintf("%06d", time.Now().UnixNano()%1000000) // لاستخدام أفضل: crypto/rand
     expiresAt := time.Now().Add(10 * time.Minute)
 
     if err := h.db.StoreSMSAttempt(r.Context(), userID, tenantID, req.PhoneNumber, code, expiresAt); err != nil {
