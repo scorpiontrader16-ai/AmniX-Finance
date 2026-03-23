@@ -1,0 +1,34 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.8.2
+pydantic-settings==2.4.0
+
+# ML frameworks
+scikit-learn==1.5.2
+xgboost==2.1.1
+lightgbm==4.5.0
+torch==2.4.1
+transformers==4.44.2
+onnxruntime==1.19.2
+numpy==2.1.1
+pandas==2.2.3
+
+# DB + Cache
+asyncpg==0.29.0
+redis==5.1.0
+sqlalchemy[asyncio]==2.0.36
+
+# Observability
+prometheus-client==0.21.0
+opentelemetry-api==1.27.0
+opentelemetry-sdk==1.27.0
+opentelemetry-exporter-otlp-proto-grpc==1.27.0
+opentelemetry-instrumentation-fastapi==0.48b0
+
+# AWS S3 for model artifacts
+boto3==1.35.36
+
+# gRPC
+grpcio==1.67.0
+grpcio-tools==1.67.0
+protobuf==5.28.2
