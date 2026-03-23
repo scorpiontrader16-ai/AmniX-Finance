@@ -1,0 +1,130 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: developer-portal
+  namespace: platform
+  labels:
+    app: developer-portal
+spec:
+  replicas: 3
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: developer-portal
+  template:
+    metadata:
+      labels:
+        app: developer-portal
+    spec:
+      serviceAccountName: developer-portal
+      nodeSelector:
+        kubernetes.io/arch: arm64
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: developer-portal
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: developer-portal
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app: developer-portal
+      containers:
+        - name: developer-portal
+          image: ghcr.io/scorpiontrader16-ai/youtuop-1/developer-portal:1.0.0
+          ports:
+            - name: http
+              containerPort: 9097
+              protocol: TCP
+          env:
+            - name: HTTP_PORT
+              value: "9097"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: otel-collector:4317
+            - name: PORTAL_URL
+              value: "https://developers.youtuop-1.com"
+          envFrom:
+            - secretRef:
+                name: developer-portal-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 9097
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9097
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+  strategy:
+    canary:
+      canaryService: developer-portal-canary
+      stableService: developer-portal-stable
+      trafficRouting:
+        nginx:
+          stableIngress: developer-portal-stable
+      steps:
+        - setWeight: 10
+        - pause:
+            duration: 2m
+        - analysis:
+            templates:
+              - templateName: developer-portal-error-rate-check
+        - setWeight: 50
+        - pause:
+            duration: 5m
+        - analysis:
+            templates:
+              - templateName: developer-portal-error-rate-check
+        - setWeight: 100
+      autoPromotionEnabled: false
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: developer-portal-error-rate-check
+  namespace: platform
+spec:
+  metrics:
+    - name: error-rate
+      interval: 60s
+      failureLimit: 3
+      provider:
+        prometheus:
+          address: http://victoria-metrics.monitoring.svc.cluster.local:8428
+          query: |
+            sum(rate(developer_portal_http_request_duration_seconds_count{path=~"/v1/developer/.*",status=~"5.*"}[2m]))
+            /
+            sum(rate(developer_portal_http_request_duration_seconds_count{path=~"/v1/developer/.*"}[2m]))
+      successCondition: result[0] < 0.01
