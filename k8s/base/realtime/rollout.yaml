@@ -1,0 +1,129 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: realtime
+  namespace: platform
+  labels:
+    app: realtime
+spec:
+  replicas: 3
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: realtime
+  template:
+    metadata:
+      labels:
+        app: realtime
+    spec:
+      serviceAccountName: realtime
+      nodeSelector:
+        kubernetes.io/arch: arm64
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: realtime
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: realtime
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app: realtime
+      containers:
+        - name: realtime
+          image: ghcr.io/scorpiontrader16-ai/youtuop-1/realtime:1.0.0
+          ports:
+            - name: http
+              containerPort: 9099
+              protocol: TCP
+          env:
+            - name: HTTP_PORT
+              value: "9099"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: otel-collector:4317
+            - name: JWT_ISSUER
+              value: "https://auth.youtuop-1.com"
+            - name: JWKS_ENDPOINT
+              value: "http://auth-stable.platform.svc.cluster.local:9092/.well-known/jwks.json"
+            - name: REDPANDA_BROKERS
+              value: redpanda:9092
+          envFrom:
+            - secretRef:
+                name: realtime-secrets
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 9099
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9099
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+  strategy:
+    canary:
+      canaryService: realtime-canary
+      stableService: realtime-stable
+      trafficRouting:
+        nginx:
+          stableIngress: realtime-stable
+      steps:
+        - setWeight: 10
+        - pause:
+            duration: 5m
+        - analysis:
+            templates:
+              - templateName: realtime-error-rate-check
+        - setWeight: 50
+        - pause:
+            duration: 5m
+        - setWeight: 100
+      autoPromotionEnabled: false
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: realtime-error-rate-check
+  namespace: platform
+spec:
+  metrics:
+    - name: connection-errors
+      interval: 60s
+      failureLimit: 3
+      provider:
+        prometheus:
+          address: http://victoria-metrics.monitoring.svc.cluster.local:8428
+          query: |
+            rate(realtime_connection_errors_total[2m])
+      successCondition: result[0] < 10
