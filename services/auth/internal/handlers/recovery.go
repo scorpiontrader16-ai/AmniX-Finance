@@ -14,7 +14,6 @@ import (
     "github.com/aminpola2001-ctrl/youtuop/services/auth/internal/postgres"
 )
 
-// Placeholder for notification client – سيتم استبداله بالخدمة الحقيقية
 type Notifier interface {
     SendEmail(to, subject, body string) error
 }
@@ -39,12 +38,11 @@ func (h *RecoveryHandler) RequestReset(w http.ResponseWriter, r *http.Request) {
     }
 
     var userID, tenantID string
-    err := h.db.QueryRow(r.Context(),
+    err := h.db.DB().QueryRow(r.Context(),
         `SELECT id, tenant_id FROM users WHERE email = $1`,
         req.Email,
     ).Scan(&userID, &tenantID)
     if err != nil {
-        // لا نكشف وجود البريد
         w.WriteHeader(http.StatusAccepted)
         json.NewEncoder(w).Encode(map[string]string{"status": "if email exists, reset link sent"})
         return
@@ -67,9 +65,10 @@ func (h *RecoveryHandler) RequestReset(w http.ResponseWriter, r *http.Request) {
 
     resetURL := fmt.Sprintf("https://app.platform.com/reset-password?token=%s", token)
     emailBody := fmt.Sprintf("Click here to reset your password: %s", resetURL)
-    // إرسال البريد – يمكن استدعاء خدمة الإشعارات
     if h.notifier != nil {
         _ = h.notifier.SendEmail(req.Email, "Password Reset", emailBody)
+    } else {
+        h.logger.Info("recovery email would be sent", "to", req.Email, "url", resetURL)
     }
 
     w.WriteHeader(http.StatusAccepted)
@@ -103,7 +102,7 @@ func (h *RecoveryHandler) ResetPassword(w http.ResponseWriter, r *http.Request) 
         return
     }
 
-    _, err = h.db.Exec(r.Context(),
+    _, err = h.db.DB().Exec(r.Context(),
         `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
         hashed, userID,
     )
