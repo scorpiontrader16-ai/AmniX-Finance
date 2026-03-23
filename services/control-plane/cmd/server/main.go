@@ -11,6 +11,7 @@ import (
     "syscall"
     "time"
 
+    "github.com/gorilla/mux"
     "github.com/jackc/pgx/v5/pgxpool"
     "github.com/prometheus/client_golang/prometheus/promhttp"
     "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -53,14 +54,15 @@ func main() {
 
     s := &server{db: pool}
 
-    mux := http.NewServeMux()
+    // ── Router (gorilla/mux) ───────────────────────────────────────────
+    router := mux.NewRouter()
 
     // Health checks
-    mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+    router.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
         w.WriteHeader(http.StatusOK)
         w.Write([]byte("ok"))
     })
-    mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+    router.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
         if err := pool.Ping(context.Background()); err != nil {
             w.WriteHeader(http.StatusServiceUnavailable)
             w.Write([]byte("postgres not ready"))
@@ -70,31 +72,37 @@ func main() {
         w.Write([]byte("ready"))
     })
 
-    // ========== LEGAL PAGES (served from mounted volume) ==========
-    mux.HandleFunc("GET /legal/terms", func(w http.ResponseWriter, r *http.Request) {
+    // Legal pages (served from mounted volume)
+    router.HandleFunc("/legal/terms", func(w http.ResponseWriter, r *http.Request) {
         http.ServeFile(w, r, "/app/legal/terms.html")
     })
-    mux.HandleFunc("GET /legal/privacy", func(w http.ResponseWriter, r *http.Request) {
+    router.HandleFunc("/legal/privacy", func(w http.ResponseWriter, r *http.Request) {
         http.ServeFile(w, r, "/app/legal/privacy.html")
     })
-    mux.HandleFunc("GET /legal/cookies", func(w http.ResponseWriter, r *http.Request) {
+    router.HandleFunc("/legal/cookies", func(w http.ResponseWriter, r *http.Request) {
         http.ServeFile(w, r, "/app/legal/cookies.html")
     })
-    mux.HandleFunc("GET /legal/dpa", func(w http.ResponseWriter, r *http.Request) {
+    router.HandleFunc("/legal/dpa", func(w http.ResponseWriter, r *http.Request) {
         http.ServeFile(w, r, "/app/legal/dpa.html")
     })
 
-    // ========== COMPLIANCE & LEGAL ENDPOINTS ==========
-    mux.HandleFunc("GET /api/v1/legal/holds", s.handleLegalHolds)
-    mux.HandleFunc("POST /api/v1/legal/holds", s.handleLegalHolds)
-    mux.HandleFunc("POST /api/v1/compliance/reports/mifid", s.handleGenerateMifidReport)
-    mux.HandleFunc("POST /api/v1/disclaimers/accept", s.handleAcceptDisclaimer)
+    // Compliance & legal endpoints
+    router.HandleFunc("/api/v1/legal/holds", s.handleLegalHolds).Methods("GET", "POST")
+    router.HandleFunc("/api/v1/compliance/reports/mifid", s.handleGenerateMifidReport).Methods("POST")
+    router.HandleFunc("/api/v1/disclaimers/accept", s.handleAcceptDisclaimer).Methods("POST")
+
+    // Tenant management (Super Admin)
+    router.HandleFunc("/api/v1/admin/tenants", s.handleCreateTenant).Methods("POST")
+    router.HandleFunc("/api/v1/admin/tenants", s.handleListTenants).Methods("GET")
+    router.HandleFunc("/api/v1/admin/tenants/{id}/suspend", s.handleSuspendTenant).Methods("PUT")
+    router.HandleFunc("/api/v1/admin/tenants/{id}", s.handleDeleteTenant).Methods("DELETE")
+    router.HandleFunc("/api/v1/admin/tenants/{id}/config", s.handleUpdateConfig).Methods("PUT")
 
     // Metrics
-    mux.Handle("GET /metrics", promhttp.Handler())
+    router.Handle("/metrics", promhttp.Handler())
 
     // Wrap with otel
-    handler := otelhttp.NewHandler(mux, "control-plane-http")
+    handler := otelhttp.NewHandler(router, "control-plane-http")
 
     httpPort := os.Getenv("HTTP_PORT")
     if httpPort == "" {
@@ -141,7 +149,7 @@ func main() {
     slog.Info("shutdown complete")
 }
 
-// ========== HANDLERS ==========
+// ========== COMPLIANCE & LEGAL HANDLERS (unchanged) ==========
 
 func (s *server) handleLegalHolds(w http.ResponseWriter, r *http.Request) {
     tenantID := r.Header.Get("X-Tenant-ID")
@@ -236,7 +244,6 @@ func (s *server) handleGenerateMifidReport(w http.ResponseWriter, r *http.Reques
         return
     }
 
-    // Generate report data (simplified for demo)
     reportData := map[string]interface{}{
         "summary":      "MiFID II Best Execution Report",
         "period_start": req.PeriodStart,
@@ -301,6 +308,169 @@ func (s *server) handleAcceptDisclaimer(w http.ResponseWriter, r *http.Request) 
     w.WriteHeader(http.StatusCreated)
     json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
 }
+
+// ========== TENANT MANAGEMENT HANDLERS (M9) ==========
+
+func (s *server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
+    var req struct {
+        Name         string                 `json:"name"`
+        Slug         string                 `json:"slug"`
+        CustomDomain string                 `json:"custom_domain,omitempty"`
+        Plan         string                 `json:"plan"`
+        Limits       map[string]interface{} `json:"limits,omitempty"`
+    }
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        http.Error(w, "invalid request", http.StatusBadRequest)
+        return
+    }
+
+    // Check uniqueness of slug
+    var exists bool
+    err := s.db.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM tenants WHERE slug = $1)", req.Slug).Scan(&exists)
+    if err != nil || exists {
+        http.Error(w, "slug already exists", http.StatusConflict)
+        return
+    }
+
+    limits := req.Limits
+    if limits == nil {
+        limits = map[string]interface{}{
+            "rate_limit": 1000,
+            "storage_gb": 10,
+            "max_users":  10,
+        }
+    }
+
+    var tenantID string
+    err = s.db.QueryRow(r.Context(),
+        `INSERT INTO tenants (slug, name, plan, custom_domain, limits, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+         RETURNING id`,
+        req.Slug, req.Name, req.Plan, req.CustomDomain, limits,
+    ).Scan(&tenantID)
+    if err != nil {
+        slog.Error("create tenant", "error", err)
+        http.Error(w, "failed to create tenant", http.StatusInternalServerError)
+        return
+    }
+
+    // Log audit
+    _, _ = s.db.Exec(r.Context(),
+        `INSERT INTO tenant_audit_log (tenant_id, action, performed_by, details)
+         VALUES ($1, 'create', $2, $3)`,
+        tenantID, r.Header.Get("X-User-ID"), req,
+    )
+
+    w.WriteHeader(http.StatusCreated)
+    json.NewEncoder(w).Encode(map[string]string{"id": tenantID})
+}
+
+func (s *server) handleListTenants(w http.ResponseWriter, r *http.Request) {
+    rows, err := s.db.Query(r.Context(),
+        `SELECT id, slug, name, plan, custom_domain, status, limits, created_at, updated_at
+         FROM tenants WHERE status != 'deleted' ORDER BY created_at DESC`)
+    if err != nil {
+        slog.Error("list tenants", "error", err)
+        http.Error(w, "database error", http.StatusInternalServerError)
+        return
+    }
+    defer rows.Close()
+
+    var tenants []map[string]interface{}
+    for rows.Next() {
+        var id, slug, name, plan, customDomain, status string
+        var limits []byte
+        var createdAt, updatedAt time.Time
+        if err := rows.Scan(&id, &slug, &name, &plan, &customDomain, &status, &limits, &createdAt, &updatedAt); err != nil {
+            continue
+        }
+        tenants = append(tenants, map[string]interface{}{
+            "id":            id,
+            "slug":          slug,
+            "name":          name,
+            "plan":          plan,
+            "custom_domain": customDomain,
+            "status":        status,
+            "limits":        limits,
+            "created_at":    createdAt,
+            "updated_at":    updatedAt,
+        })
+    }
+    json.NewEncoder(w).Encode(tenants)
+}
+
+func (s *server) handleSuspendTenant(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    id := vars["id"]
+
+    _, err := s.db.Exec(r.Context(),
+        `UPDATE tenants SET status = 'suspended', updated_at = NOW() WHERE id = $1`,
+        id,
+    )
+    if err != nil {
+        slog.Error("suspend tenant", "error", err)
+        http.Error(w, "failed to suspend", http.StatusInternalServerError)
+        return
+    }
+    _, _ = s.db.Exec(r.Context(),
+        `INSERT INTO tenant_audit_log (tenant_id, action, performed_by) VALUES ($1, 'suspend', $2)`,
+        id, r.Header.Get("X-User-ID"),
+    )
+    w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    id := vars["id"]
+
+    // Soft delete
+    _, err := s.db.Exec(r.Context(),
+        `UPDATE tenants SET status = 'deleted', deleted_at = NOW(), updated_at = NOW() WHERE id = $1`,
+        id,
+    )
+    if err != nil {
+        slog.Error("delete tenant", "error", err)
+        http.Error(w, "failed to delete", http.StatusInternalServerError)
+        return
+    }
+    _, _ = s.db.Exec(r.Context(),
+        `INSERT INTO tenant_audit_log (tenant_id, action, performed_by) VALUES ($1, 'delete', $2)`,
+        id, r.Header.Get("X-User-ID"),
+    )
+    w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    id := vars["id"]
+
+    var req struct {
+        CustomDomain string                 `json:"custom_domain"`
+        Branding     map[string]interface{} `json:"branding"`
+        Limits       map[string]interface{} `json:"limits"`
+    }
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        http.Error(w, "invalid request", http.StatusBadRequest)
+        return
+    }
+
+    _, err := s.db.Exec(r.Context(),
+        `UPDATE tenants SET custom_domain = $1, branding = $2, limits = $3, updated_at = NOW() WHERE id = $4`,
+        req.CustomDomain, req.Branding, req.Limits, id,
+    )
+    if err != nil {
+        slog.Error("update tenant config", "error", err)
+        http.Error(w, "failed to update", http.StatusInternalServerError)
+        return
+    }
+    _, _ = s.db.Exec(r.Context(),
+        `INSERT INTO tenant_audit_log (tenant_id, action, performed_by, details) VALUES ($1, 'update_config', $2, $3)`,
+        id, r.Header.Get("X-User-ID"), req,
+    )
+    w.WriteHeader(http.StatusNoContent)
+}
+
+// ========== TRACER AND GRPC HEALTH ==========
 
 func initTracer() (func(context.Context) error, error) {
     endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
