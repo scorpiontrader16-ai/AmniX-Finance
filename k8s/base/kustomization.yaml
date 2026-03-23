@@ -12,6 +12,7 @@ resources:
   - developer-portal
   - ml-engine
   - realtime
+  - search
   - processing
   - hydration
   - cilium
