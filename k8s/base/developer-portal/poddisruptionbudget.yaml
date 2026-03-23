@@ -1,0 +1,12 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: developer-portal
+  namespace: platform
+  labels:
+    app: developer-portal
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: developer-portal
