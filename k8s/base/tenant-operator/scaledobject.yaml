@@ -1,0 +1,17 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: tenant-operator
+  namespace: platform
+spec:
+  scaleTargetRef:
+    name: tenant-operator
+  minReplicaCount: 1
+  maxReplicaCount: 2
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://victoria-metrics.monitoring.svc.cluster.local:8428
+        metricName: tenant_operator_queue_length
+        query: sum(rate(tenant_operator_requests_total[2m]))
+        threshold: "10"
