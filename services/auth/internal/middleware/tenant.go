@@ -1,26 +1,23 @@
 package middleware
 
 import (
-    "context"
-    "database/sql"
     "net/http"
+
+    "github.com/aminpola2001-ctrl/youtuop/services/auth/internal/postgres"
 )
 
-type TenantContextKey string
-
-const TenantIDKey TenantContextKey = "tenant_id"
-
-func TenantMiddleware(db *sql.DB) func(http.Handler) http.Handler {
+// TenantContextMiddleware sets PostgreSQL session variable app.tenant_id
+// based on the X-Tenant-ID header.
+func TenantContextMiddleware(db *postgres.Client) func(http.Handler) http.Handler {
     return func(next http.Handler) http.Handler {
         return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            // Extract tenant ID from JWT claims or header
-            // For now, assume it's set by previous middleware (JWT validation)
-            tenantID := r.Context().Value(TenantIDKey)
-            if tenantID != nil {
-                // Set PostgreSQL session variable for RLS
-                _, err := db.ExecContext(r.Context(), "SELECT set_config('app.tenant_id', $1, false)", tenantID)
+            tenantID := r.Header.Get("X-Tenant-ID")
+            if tenantID != "" {
+                // Execute set_config in PostgreSQL
+                _, err := db.DB().Exec(r.Context(), "SELECT set_config('app.tenant_id', $1, false)", tenantID)
                 if err != nil {
-                    // Log error but continue (RLS will block if missing)
+                    // Log error but continue
+                    // slog is not available here; use a global logger if needed
                 }
             }
             next.ServeHTTP(w, r)
