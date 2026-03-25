@@ -1,0 +1,48 @@
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  المسار الكامل: k8s/base/processing/certificate.yaml                  
+# ║  الحالة: 🆕 جديد                                                    ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: processing-tls
+  namespace: platform
+  labels:
+    app: processing
+    app.kubernetes.io/name: processing-tls
+    app.kubernetes.io/component: pki
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: youtuop-platform
+spec:
+  secretName: processing-tls-secret
+  duration: 2160h
+  renewBefore: 360h
+  isCA: false
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS8
+    size: 2048
+    rotationPolicy: Always
+  usages:
+    - server auth
+    - client auth
+  dnsNames:
+    - processing
+    - processing.platform
+    - processing.platform.svc
+    - processing.platform.svc.cluster.local
+    - processing-stable
+    - processing-stable.platform
+    - processing-stable.platform.svc
+    - processing-stable.platform.svc.cluster.local
+    - processing-canary
+    - processing-canary.platform
+    - processing-canary.platform.svc
+    - processing-canary.platform.svc.cluster.local
+  ipAddresses:
+    - 127.0.0.1
+  issuerRef:
+    name: platform-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
