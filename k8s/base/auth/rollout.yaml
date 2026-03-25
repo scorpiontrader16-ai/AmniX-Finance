@@ -1,7 +1,7 @@
-# ╔══════════════════════════════════════════════════════════════╗
-# ║  المسار الكامل: k8s/base/auth/rollout.yaml                  ║
-# ║  الحالة: ✏️ معدل — إضافة TLS volume + mount + env vars      ║
-# ╚══════════════════════════════════════════════════════════════╝
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  المسار الكامل: k8s/base/auth/rollout.yaml                      ║
+# ║  الحالة: ✏️ معدل — M5: TLS volume | M9: POSTGRES_HOST → pgbouncer ║
+# ╚══════════════════════════════════════════════════════════════════╝
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout
@@ -52,7 +52,7 @@ spec:
         - name: jwt-key
           secret:
             secretName: auth-jwt-key
-        # ── ✏️ مُضاف: cert-manager TLS — يُجدَّد تلقائياً كل 90 يوم ──
+        # ── M5: cert-manager TLS — يُجدَّد تلقائياً كل 90 يوم ──────
         - name: tls
           secret:
             secretName: auth-tls-secret
@@ -80,13 +80,19 @@ spec:
               value: /secrets/jwt/private.pem
             - name: REDIS_ADDR
               value: redis:6379
-            # ── ✏️ مُضاف: مسارات TLS ──
+            # ── M5: مسارات TLS ─────────────────────────────────────
             - name: TLS_CERT_PATH
               value: /etc/tls/tls.crt
             - name: TLS_KEY_PATH
               value: /etc/tls/tls.key
             - name: TLS_CA_PATH
               value: /etc/tls/ca.crt
+            # ── M9: تحويل Postgres عبر PgBouncer ───────────────────
+            # env المباشر يأخذ الأولوية على envFrom (AWS SM secret)
+            - name: POSTGRES_HOST
+              value: pgbouncer.platform.svc.cluster.local
+            - name: POSTGRES_PORT
+              value: "6432"
           envFrom:
             - secretRef:
                 name: auth-secrets
@@ -94,7 +100,6 @@ spec:
             - name: jwt-key
               mountPath: /secrets/jwt
               readOnly: true
-            # ── ✏️ مُضاف: TLS mount ──
             - name: tls
               mountPath: /etc/tls
               readOnly: true
