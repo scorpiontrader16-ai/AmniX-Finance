@@ -1,7 +1,17 @@
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  المسار الكامل: infra/cert-manager/cluster-issuer.yaml      ║
+# ║  الحالة: 🆕 جديد                                            ║
+# ╚══════════════════════════════════════════════════════════════╝
+---
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
   name: platform-ca-issuer
+  labels:
+    app.kubernetes.io/name: platform-ca-issuer
+    app.kubernetes.io/component: pki
+    app.kubernetes.io/managed-by: kubectl
+    app.kubernetes.io/part-of: youtuop-platform
 spec:
   ca:
     secretName: platform-ca-secret
