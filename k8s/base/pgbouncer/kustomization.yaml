@@ -1,0 +1,14 @@
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  المسار الكامل: k8s/base/pgbouncer/kustomization.yaml           ║
+# ║  الحالة: 🆕 جديد                                                ║
+# ╚══════════════════════════════════════════════════════════════════╝
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - serviceaccount.yaml
+  - networkpolicy.yaml
+  - externalsecret.yaml
+  - poddisruptionbudget.yaml
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml
