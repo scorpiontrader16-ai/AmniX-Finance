@@ -1,0 +1,43 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: realtime-tls
+  namespace: platform
+  labels:
+    app: realtime
+    app.kubernetes.io/name: realtime-tls
+    app.kubernetes.io/component: pki
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: youtuop-platform
+spec:
+  secretName: realtime-tls-secret
+  duration: 2160h
+  renewBefore: 360h
+  isCA: false
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS8
+    size: 2048
+    rotationPolicy: Always
+  usages:
+    - server auth
+    - client auth
+  dnsNames:
+    - realtime
+    - realtime.platform
+    - realtime.platform.svc
+    - realtime.platform.svc.cluster.local
+    - realtime-stable
+    - realtime-stable.platform
+    - realtime-stable.platform.svc
+    - realtime-stable.platform.svc.cluster.local
+    - realtime-canary
+    - realtime-canary.platform
+    - realtime-canary.platform.svc
+    - realtime-canary.platform.svc.cluster.local
+  ipAddresses:
+    - 127.0.0.1
+  issuerRef:
+    name: platform-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
