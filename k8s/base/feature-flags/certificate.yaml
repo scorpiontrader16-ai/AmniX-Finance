@@ -1,0 +1,43 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: feature-flags-tls
+  namespace: platform
+  labels:
+    app: feature-flags
+    app.kubernetes.io/name: feature-flags-tls
+    app.kubernetes.io/component: pki
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: youtuop-platform
+spec:
+  secretName: feature-flags-tls-secret
+  duration: 2160h
+  renewBefore: 360h
+  isCA: false
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS8
+    size: 2048
+    rotationPolicy: Always
+  usages:
+    - server auth
+    - client auth
+  dnsNames:
+    - feature-flags
+    - feature-flags.platform
+    - feature-flags.platform.svc
+    - feature-flags.platform.svc.cluster.local
+    - feature-flags-stable
+    - feature-flags-stable.platform
+    - feature-flags-stable.platform.svc
+    - feature-flags-stable.platform.svc.cluster.local
+    - feature-flags-canary
+    - feature-flags-canary.platform
+    - feature-flags-canary.platform.svc
+    - feature-flags-canary.platform.svc.cluster.local
+  ipAddresses:
+    - 127.0.0.1
+  issuerRef:
+    name: platform-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
