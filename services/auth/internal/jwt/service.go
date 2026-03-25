@@ -1,11 +1,16 @@
 package jwt
 
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  services/auth/internal/jwt/service.go                          ║
+// ║  M5 – Crypto Agility: supports RS256 + ES256                    ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rsa"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"math/big"
@@ -22,7 +27,6 @@ const (
 
 // Claims هي الـ payload في كل access token.
 // UserID محفوظ في RegisteredClaims.Subject (json:"sub") — مفيش تكرار.
-// باقي الـ fields هي custom claims.
 type Claims struct {
 	// M8: بيانات الـ session
 	Email     string `json:"email"`
@@ -46,54 +50,48 @@ func (c *Claims) UserID() string { return c.Subject }
 
 // IssueInput — input لإصدار token جديد
 type IssueInput struct {
-	UserID     string
-	Email      string
-	SessionID  string
-	TenantID   string
-	TenantSlug string
-	Plan       string
-	Role       string
+	UserID      string
+	Email       string
+	SessionID   string
+	TenantID    string
+	TenantSlug  string
+	Plan        string
+	Role        string
 	Permissions []string
 }
 
 // ── Service ───────────────────────────────────────────────────────────────
 
 type Service struct {
-	privateKey *rsa.PrivateKey
-	publicKey  *rsa.PublicKey
-	issuer     string
-	keyID      string
+	cfg    *CryptoConfig
+	issuer string
 }
 
+// NewService ينشئ service من PEM bytes مباشرة (backward compatible)
+// يستخدم RS256 افتراضياً
 func NewService(privateKeyPEM []byte, issuer string) (*Service, error) {
-	block, _ := pem.Decode(privateKeyPEM)
-	if block == nil {
-		return nil, errors.New("failed to decode PEM block")
+	cfg, err := LoadCryptoConfigFromPEM(AlgorithmRS256, privateKeyPEM, "v1")
+	if err != nil {
+		return nil, fmt.Errorf("load crypto config: %w", err)
 	}
-
-	// Try PKCS8 first, then PKCS1
-	var rsaKey *rsa.PrivateKey
-	if key, err := x509.ParsePKCS8PrivateKey(block.Bytes); err == nil {
-		var ok bool
-		rsaKey, ok = key.(*rsa.PrivateKey)
-		if !ok {
-			return nil, errors.New("key is not RSA")
-		}
-	} else if key, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
-		rsaKey = key
-	} else {
-		return nil, fmt.Errorf("parse RSA private key: %w", err)
-	}
-
-	return &Service{
-		privateKey: rsaKey,
-		publicKey:  &rsaKey.PublicKey,
-		issuer:     issuer,
-		keyID:      "v1",
-	}, nil
+	return &Service{cfg: cfg, issuer: issuer}, nil
 }
 
-// IssueAccessToken يصدر JWT موقّع بـ RS256
+// NewServiceFromConfig ينشئ service من CryptoConfig — M5 entry point
+func NewServiceFromConfig(cfg *CryptoConfig, issuer string) (*Service, error) {
+	if cfg == nil {
+		return nil, errors.New("crypto config is required")
+	}
+	if issuer == "" {
+		return nil, errors.New("issuer is required")
+	}
+	return &Service{cfg: cfg, issuer: issuer}, nil
+}
+
+// Algorithm يرجع الـ algorithm المستخدم حالياً
+func (s *Service) Algorithm() Algorithm { return s.cfg.Algorithm }
+
+// IssueAccessToken يصدر JWT موقّع بالـ algorithm المختار
 func (s *Service) IssueAccessToken(in IssueInput) (string, error) {
 	now := time.Now()
 	c := Claims{
@@ -106,24 +104,44 @@ func (s *Service) IssueAccessToken(in IssueInput) (string, error) {
 		Permissions: in.Permissions,
 		RegisteredClaims: gojwt.RegisteredClaims{
 			Issuer:    s.issuer,
-			Subject:   in.UserID, // UserID يتحفظ هنا كـ "sub"
+			Subject:   in.UserID,
 			IssuedAt:  gojwt.NewNumericDate(now),
 			ExpiresAt: gojwt.NewNumericDate(now.Add(AccessTokenTTL)),
 			ID:        uuid.NewString(),
 		},
 	}
-	t := gojwt.NewWithClaims(gojwt.SigningMethodRS256, c)
-	t.Header["kid"] = s.keyID
-	return t.SignedString(s.privateKey)
+
+	var token *gojwt.Token
+	switch s.cfg.Algorithm {
+	case AlgorithmRS256:
+		token = gojwt.NewWithClaims(gojwt.SigningMethodRS256, c)
+	case AlgorithmES256:
+		token = gojwt.NewWithClaims(gojwt.SigningMethodES256, c)
+	default:
+		return "", fmt.Errorf("unsupported algorithm: %s", s.cfg.Algorithm)
+	}
+
+	token.Header["kid"] = s.cfg.KeyID
+	return token.SignedString(s.cfg.PrivateKey)
 }
 
 // Validate يتحقق من الـ JWT ويرجع الـ Claims
 func (s *Service) Validate(tokenStr string) (*Claims, error) {
 	t, err := gojwt.ParseWithClaims(tokenStr, &Claims{}, func(t *gojwt.Token) (any, error) {
-		if _, ok := t.Method.(*gojwt.SigningMethodRSA); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		switch s.cfg.Algorithm {
+		case AlgorithmRS256:
+			if _, ok := t.Method.(*gojwt.SigningMethodRSA); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+			}
+			return s.cfg.PublicKey, nil
+		case AlgorithmES256:
+			if _, ok := t.Method.(*gojwt.SigningMethodECDSA); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+			}
+			return s.cfg.PublicKey, nil
+		default:
+			return nil, fmt.Errorf("unsupported algorithm: %s", s.cfg.Algorithm)
 		}
-		return s.publicKey, nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("invalid token: %w", err)
@@ -137,16 +155,57 @@ func (s *Service) Validate(tokenStr string) (*Claims, error) {
 
 // JWKS يرجع الـ public key بصيغة JWK Set لـ /.well-known/jwks.json
 func (s *Service) JWKS() ([]byte, error) {
-	n := base64.RawURLEncoding.EncodeToString(s.publicKey.N.Bytes())
-	e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(s.publicKey.E)).Bytes())
+	switch s.cfg.Algorithm {
+	case AlgorithmRS256:
+		return s.jwksRSA()
+	case AlgorithmES256:
+		return s.jwksECDSA()
+	default:
+		return nil, fmt.Errorf("unsupported algorithm: %s", s.cfg.Algorithm)
+	}
+}
+
+func (s *Service) jwksRSA() ([]byte, error) {
+	pub, ok := s.cfg.PublicKey.(*rsa.PublicKey)
+	if !ok {
+		return nil, errors.New("public key is not RSA")
+	}
+	n := base64.RawURLEncoding.EncodeToString(pub.N.Bytes())
+	e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(pub.E)).Bytes())
 	return json.Marshal(map[string]any{
 		"keys": []map[string]any{{
 			"kty": "RSA",
 			"use": "sig",
 			"alg": "RS256",
-			"kid": s.keyID,
+			"kid": s.cfg.KeyID,
 			"n":   n,
 			"e":   e,
+		}},
+	})
+}
+
+func (s *Service) jwksECDSA() ([]byte, error) {
+	pub, ok := s.cfg.PublicKey.(*ecdsa.PublicKey)
+	if !ok {
+		return nil, errors.New("public key is not ECDSA")
+	}
+	if pub.Curve != elliptic.P256() {
+		return nil, errors.New("only P-256 curve is supported for ES256 JWKS")
+	}
+	byteLen := (pub.Curve.Params().BitSize + 7) / 8
+	xBytes := make([]byte, byteLen)
+	yBytes := make([]byte, byteLen)
+	pub.X.FillBytes(xBytes)
+	pub.Y.FillBytes(yBytes)
+	return json.Marshal(map[string]any{
+		"keys": []map[string]any{{
+			"kty": "EC",
+			"use": "sig",
+			"alg": "ES256",
+			"kid": s.cfg.KeyID,
+			"crv": "P-256",
+			"x":   base64.RawURLEncoding.EncodeToString(xBytes),
+			"y":   base64.RawURLEncoding.EncodeToString(yBytes),
 		}},
 	})
 }
