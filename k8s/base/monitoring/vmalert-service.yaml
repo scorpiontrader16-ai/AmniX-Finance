@@ -1,0 +1,25 @@
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  المسار الكامل: k8s/base/monitoring/vmalert-service.yaml            ║
+# ║  الحالة: 🆕 جديد                                                    ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vmalert
+  namespace: monitoring
+  labels:
+    app: vmalert
+    app.kubernetes.io/name: vmalert
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: youtuop-platform
+spec:
+  type: ClusterIP
+  selector:
+    app: vmalert
+  ports:
+    - name: http
+      port: 8880
+      targetPort: 8880
+      protocol: TCP
