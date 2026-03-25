@@ -1,0 +1,102 @@
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  المسار الكامل: k8s/base/monitoring/vmalert-deployment.yaml         ║
+# ║  الحالة: 🆕 جديد                                                    ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# VMAlert — يقرأ PrometheusRule CRDs من alertrules.yaml
+# ويقيّم قواعد الـ alerting على VictoriaMetrics
+# ويُرسل الـ alerts إلى AlertManager
+#
+# لماذا VMAlert وليس Prometheus؟
+#   ✓ يستعلم من VictoriaMetrics مباشرة (لا Prometheus مثبّت)
+#   ✓ يقرأ PrometheusRule CRD format (متوافق مع alertrules.yaml الحالية)
+#   ✓ أسرع وأخف من Prometheus
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vmalert
+  namespace: monitoring
+  labels:
+    app: vmalert
+    app.kubernetes.io/name: vmalert
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: youtuop-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vmalert
+  template:
+    metadata:
+      labels:
+        app: vmalert
+        app.kubernetes.io/name: vmalert
+        app.kubernetes.io/component: monitoring
+    spec:
+      serviceAccountName: vmalert
+      nodeSelector:
+        kubernetes.io/arch: arm64
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      volumes:
+        - name: rules
+          configMap:
+            name: vmalert-rules
+        - name: tmp
+          emptyDir: {}
+      containers:
+        - name: vmalert
+          image: victoriametrics/vmalert:v1.99.0
+          args:
+            # مصدر الـ metrics لتقييم القواعد
+            - -datasource.url=http://victoria-metrics.monitoring.svc.cluster.local:8428
+            # إرسال الـ alerts إلى AlertManager
+            - -notifier.url=http://alertmanager.monitoring.svc.cluster.local:9093
+            # مسار ملفات القواعد
+            - -rule=/etc/vmalert/rules/*.yaml
+            # تقييم كل 30 ثانية (يتطابق مع interval في alertrules.yaml)
+            - -evaluationInterval=30s
+            # Remotewrite للـ alert state إلى VictoriaMetrics
+            - -remoteWrite.url=http://victoria-metrics.monitoring.svc.cluster.local:8428/api/v1/write
+            - -httpListenAddr=:8880
+            - -loggerLevel=INFO
+          ports:
+            - name: http
+              containerPort: 8880
+          volumeMounts:
+            - name: rules
+              mountPath: /etc/vmalert/rules
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8880
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8880
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
