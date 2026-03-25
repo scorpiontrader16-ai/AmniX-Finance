@@ -1,3 +1,8 @@
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  المسار الكامل: k8s/base/ingestion/rollout.yaml                 ║
+# ║  الحالة: ✏️ معدل — إضافة TLS volume + mount + env vars          ║
+# ╚══════════════════════════════════════════════════════════════════╝
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout
 metadata:
@@ -23,27 +28,19 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         fsGroup: 1000
-
-      # ── Topology Spread — توزيع الـ pods على الـ AZs ─────────
-      # يمنع إن الـ pods كلها تيجي في AZ واحدة
-      # لو AZ وقعت — الـ service لسه شغالة من الـ AZs التانية
       topologySpreadConstraints:
-        # AZ-level spread — موزّع على الـ availability zones
         - maxSkew: 1
           topologyKey: topology.kubernetes.io/zone
           whenUnsatisfiable: DoNotSchedule
           labelSelector:
             matchLabels:
               app: ingestion
-        # Node-level spread — موزّع على nodes مختلفة
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
           whenUnsatisfiable: DoNotSchedule
           labelSelector:
             matchLabels:
               app: ingestion
-
-      # ── Affinity — يفضّل نفس الـ AZ زي Redpanda عشان يقلل cross-AZ traffic
       affinity:
         podAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -55,17 +52,19 @@ spec:
                     - key: app
                       operator: In
                       values: [redpanda]
-        # لا تحط 2 ingestion pods على نفس الـ node
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             - topologyKey: kubernetes.io/hostname
               labelSelector:
                 matchLabels:
                   app: ingestion
-
+      volumes:
+        # ── ✏️ مُضاف: cert-manager TLS — يُجدَّد تلقائياً كل 90 يوم ──
+        - name: tls
+          secret:
+            secretName: ingestion-tls-secret
       containers:
         - name: ingestion
-          # الـ image tag بيتحدث تلقائياً من release.yml workflow
           image: ghcr.io/scorpiontrader16-ai/youtuop-1/ingestion:1.0.0
           ports:
             - name: grpc
@@ -83,9 +82,21 @@ spec:
               value: redpanda:9092
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: otel-collector:4317
+            # ── ✏️ مُضاف: مسارات TLS ──
+            - name: TLS_CERT_PATH
+              value: /etc/tls/tls.crt
+            - name: TLS_KEY_PATH
+              value: /etc/tls/tls.key
+            - name: TLS_CA_PATH
+              value: /etc/tls/ca.crt
           envFrom:
             - secretRef:
                 name: ingestion-secrets
+          volumeMounts:
+            # ── ✏️ مُضاف: TLS mount ──
+            - name: tls
+              mountPath: /etc/tls
+              readOnly: true
           resources:
             requests:
               cpu: 100m
@@ -112,8 +123,6 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
-
-  # ── Canary Strategy ──────────────────────────────────────
   strategy:
     canary:
       canaryService: ingestion-canary
