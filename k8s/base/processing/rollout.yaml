@@ -1,3 +1,8 @@
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  المسار الكامل: k8s/base/processing/rollout.yaml                ║
+# ║  الحالة: ✏️ معدل — إضافة TLS volume + mount + env vars          ║
+# ╚══════════════════════════════════════════════════════════════════╝
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout
 metadata:
@@ -23,27 +28,19 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         fsGroup: 1000
-
-      # ── Topology Spread — توزيع الـ pods على الـ AZs ─────────
-      # يمنع إن الـ pods كلها تيجي في AZ واحدة
-      # لو AZ وقعت — الـ service لسه شغالة من الـ AZs التانية
       topologySpreadConstraints:
-        # AZ-level spread
         - maxSkew: 1
           topologyKey: topology.kubernetes.io/zone
           whenUnsatisfiable: DoNotSchedule
           labelSelector:
             matchLabels:
               app: processing
-        # Node-level spread
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
           whenUnsatisfiable: DoNotSchedule
           labelSelector:
             matchLabels:
               app: processing
-
-      # ── Affinity — يفضّل نفس الـ AZ زي Redpanda عشان يقلل cross-AZ traffic
       affinity:
         podAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -55,17 +52,19 @@ spec:
                     - key: app
                       operator: In
                       values: [redpanda]
-        # لا تحط 2 processing pods على نفس الـ node
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             - topologyKey: kubernetes.io/hostname
               labelSelector:
                 matchLabels:
                   app: processing
-
+      volumes:
+        # ── ✏️ مُضاف: cert-manager TLS — يُجدَّد تلقائياً كل 90 يوم ──
+        - name: tls
+          secret:
+            secretName: processing-tls-secret
       containers:
         - name: processing
-          # الـ image tag بيتحدث تلقائياً من release.yml workflow
           image: ghcr.io/scorpiontrader16-ai/youtuop-1/processing:1.0.0
           ports:
             - name: grpc
@@ -89,6 +88,18 @@ spec:
               value: otel-collector:4317
             - name: RUST_LOG
               value: info
+            # ── ✏️ مُضاف: مسارات TLS ──
+            - name: TLS_CERT_PATH
+              value: /etc/tls/tls.crt
+            - name: TLS_KEY_PATH
+              value: /etc/tls/tls.key
+            - name: TLS_CA_PATH
+              value: /etc/tls/ca.crt
+          volumeMounts:
+            # ── ✏️ مُضاف: TLS mount ──
+            - name: tls
+              mountPath: /etc/tls
+              readOnly: true
           resources:
             requests:
               cpu: 200m
@@ -115,8 +126,6 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
-
-  # ── Canary Strategy ──────────────────────────────────────
   strategy:
     canary:
       canaryService: processing-canary
