@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: hydration-stable
+  namespace: platform
+  labels:
+    app: hydration
+    rollout: stable
+spec:
+  selector:
+    app: hydration
+  ports:
+    - name: http
+      port: 9092
+      targetPort: 9092
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hydration-canary
+  namespace: platform
+  labels:
+    app: hydration
+    rollout: canary
+spec:
+  selector:
+    app: hydration
+  ports:
+    - name: http
+      port: 9092
+      targetPort: 9092
