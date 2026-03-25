@@ -1,0 +1,53 @@
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  المسار الكامل: k8s/base/monitoring/alertmanager-service.yaml       ║
+# ║  الحالة: 🆕 جديد                                                    ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+---
+# Service عادي لـ VMAlert و Grafana للوصول إلى AlertManager API
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: monitoring
+  labels:
+    app: alertmanager
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: youtuop-platform
+spec:
+  type: ClusterIP
+  selector:
+    app: alertmanager
+  ports:
+    - name: http
+      port: 9093
+      targetPort: 9093
+      protocol: TCP
+    - name: cluster
+      port: 9094
+      targetPort: 9094
+      protocol: TCP
+---
+# Headless Service — لـ HA cluster peer discovery بين الـ 2 replicas
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager-headless
+  namespace: monitoring
+  labels:
+    app: alertmanager
+    app.kubernetes.io/name: alertmanager-headless
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: youtuop-platform
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app: alertmanager
+  ports:
+    - name: cluster
+      port: 9094
+      targetPort: 9094
+      protocol: TCP
