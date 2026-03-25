@@ -1,0 +1,43 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ml-engine-tls
+  namespace: platform
+  labels:
+    app: ml-engine
+    app.kubernetes.io/name: ml-engine-tls
+    app.kubernetes.io/component: pki
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: youtuop-platform
+spec:
+  secretName: ml-engine-tls-secret
+  duration: 2160h
+  renewBefore: 360h
+  isCA: false
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS8
+    size: 2048
+    rotationPolicy: Always
+  usages:
+    - server auth
+    - client auth
+  dnsNames:
+    - ml-engine
+    - ml-engine.platform
+    - ml-engine.platform.svc
+    - ml-engine.platform.svc.cluster.local
+    - ml-engine-stable
+    - ml-engine-stable.platform
+    - ml-engine-stable.platform.svc
+    - ml-engine-stable.platform.svc.cluster.local
+    - ml-engine-canary
+    - ml-engine-canary.platform
+    - ml-engine-canary.platform.svc
+    - ml-engine-canary.platform.svc.cluster.local
+  ipAddresses:
+    - 127.0.0.1
+  issuerRef:
+    name: platform-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
