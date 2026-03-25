@@ -1,0 +1,39 @@
+name: Proto — Breaking Change Detection
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'proto/**'
+
+concurrency:
+  group: proto-breaking-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  breaking:
+    name: Proto Breaking Change Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup buf
+        uses: bufbuild/buf-setup-action@v1
+        with:
+          version: '1.32.2'
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for breaking changes
+        uses: bufbuild/buf-breaking-action@v1
+        with:
+          input: proto/
+          against: 'https://github.com/${{ github.repository }}.git#branch=main,subdir=proto'
