@@ -1,0 +1,132 @@
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Full path: infra/argocd/argocd-httproute.yaml                      ║
+# ║  Status: 🆕 New                                                      ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# يحتوي هذا الملف على 3 موارد مترابطة:
+#
+#   1. HTTPRoute (HTTPS) — يوجّه argocd.platform.com → argocd-server:80
+#   2. HTTPRoute (HTTP)  — يعيد توجيه port 80 → HTTPS (301 redirect)
+#   3. ReferenceGrant    — يسمح للـ HTTPRoute في namespace platform
+#                          بالإشارة إلى Service في namespace argocd
+#
+# السبب:
+#   - Gateway allowedRoutes.from: Same → HTTPRoute يجب أن يكون في namespace platform
+#   - argocd-server Service موجود في namespace argocd
+#   - Cross-namespace backend reference يتطلب ReferenceGrant صريح
+#     (بدونه: Envoy Gateway يرفض الـ backend silently)
+#
+# sync-wave: "-3" — قبل kyverno (-2) وقبل أي service (1)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 1. HTTPRoute — HTTPS → argocd-server
+# ══════════════════════════════════════════════════════════════════════════════
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: argocd
+  namespace: platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+  labels:
+    app.kubernetes.io/name: argocd
+    app.kubernetes.io/component: api-gateway
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: youtuop-platform
+spec:
+  # ─── Hostname ──────────────────────────────────────────────────────────────
+  hostnames:
+    - "argocd.platform.com"
+
+  # ─── Parent — HTTPS listener على platform-gateway ──────────────────────────
+  parentRefs:
+    - name: platform-gateway
+      namespace: platform
+      # sectionName حرج — بدونه الـ route يتعلق بكل الـ listeners بما فيها grpc
+      sectionName: https
+
+  # ─── Rules ─────────────────────────────────────────────────────────────────
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: argocd-server
+          # argocd-server في namespace argocd — يتطلب ReferenceGrant أدناه
+          namespace: argocd
+          port: 80
+      # ─── Timeouts مناسبة لـ ArgoCD UI (يستخدم SSE للـ live updates) ─────────
+      timeouts:
+        request: 120s
+        backendRequest: 120s
+
+---
+# ══════════════════════════════════════════════════════════════════════════════
+# 2. HTTPRoute — HTTP port 80 → redirect إلى HTTPS (301)
+# ══════════════════════════════════════════════════════════════════════════════
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: argocd-http-redirect
+  namespace: platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+  labels:
+    app.kubernetes.io/name: argocd
+    app.kubernetes.io/component: api-gateway
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: youtuop-platform
+spec:
+  hostnames:
+    - "argocd.platform.com"
+
+  # ─── Parent — HTTP listener (port 80) ──────────────────────────────────────
+  parentRefs:
+    - name: platform-gateway
+      namespace: platform
+      sectionName: http
+
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
+
+---
+# ══════════════════════════════════════════════════════════════════════════════
+# 3. ReferenceGrant — يسمح لـ HTTPRoute في namespace platform
+#    بالوصول إلى argocd-server Service في namespace argocd
+# ══════════════════════════════════════════════════════════════════════════════
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  # يجب أن يكون في نفس namespace الـ backend (argocd) — ليس namespace الـ route
+  name: allow-platform-to-argocd
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+  labels:
+    app.kubernetes.io/name: argocd
+    app.kubernetes.io/component: api-gateway
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: youtuop-platform
+spec:
+  # ─── من أين يُسمح ──────────────────────────────────────────────────────────
+  from:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      namespace: platform
+
+  # ─── إلى ماذا يُسمح ────────────────────────────────────────────────────────
+  to:
+    - group: ""
+      kind: Service
+      name: argocd-server
