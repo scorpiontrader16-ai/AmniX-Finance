@@ -1,0 +1,494 @@
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Full path: infra/argocd/argocd-values.yaml                         ║
+# ║  Status: 🆕 New                                                      ║
+# ║  Chart: oci://ghcr.io/argoproj/argo-helm/argo-cd — version 7.8.3    ║
+# ║  ArgoCD: v2.13.3                                                     ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# التثبيت:
+#   helm upgrade --install argocd \
+#     oci://ghcr.io/argoproj/argo-helm/argo-cd \
+#     --version 7.8.3 \
+#     --namespace argocd \
+#     --create-namespace \
+#     --values infra/argocd/argocd-values.yaml \
+#     --wait --timeout 10m
+#
+# المتطلبات قبل التثبيت:
+#   1. cert-manager مثبَّت مع ClusterIssuer: platform-ca-issuer
+#   2. Envoy Gateway مثبَّت (sync-wave: -1 في applications.yaml)
+#   3. ExternalSecrets Operator مثبَّت مع ClusterSecretStore: aws-secrets-manager
+#   4. Secret في AWS SM:
+#      aws secretsmanager create-secret \
+#        --name "platform/argocd" \
+#        --secret-string '{
+#          "SLACK_TOKEN":     "<your-slack-bot-token>",
+#          "ADMIN_PASSWORD":  "<bcrypt-hashed-password>"
+#        }'
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Global ────────────────────────────────────────────────────────────────────
+global:
+  image:
+    tag: "v2.13.3"
+  # ARM64 + AMD64 — يتطابق مع نمط alertmanager-deployment.yaml
+  nodeSelector:
+    kubernetes.io/arch: arm64
+  # Labels مؤسسية — يتطابق مع نمط youtuop-platform
+  additionalLabels:
+    app.kubernetes.io/part-of: youtuop-platform
+    app.kubernetes.io/managed-by: helm
+
+# ── Configs ───────────────────────────────────────────────────────────────────
+configs:
+  # ─── ArgoCD Server Config ─────────────────────────────────────────────────
+  cm:
+    # URL الأساسي للـ ArgoCD — يُستخدم في notifications و SSO redirects
+    url: "https://argocd.platform.com"
+
+    # TLS مُنهى على Envoy Gateway → server يعمل في insecure mode
+    # لا تغيّر هذا بدون تحديث HTTPRoute أيضاً
+    application.instanceLabelKey: "app.kubernetes.io/instance"
+
+    # تمكين Helm + Kustomize معاً
+    kustomize.enabled: "true"
+    helm.enabled: "true"
+
+    # Health checks مخصصة لـ Argo Rollouts
+    # يضمن إن ArgoCD يفهم صحة الـ Rollout objects
+    resource.customizations: |
+      argoproj.io/Rollout:
+        health.lua: |
+          hs = {}
+          if obj.status == nil then
+            hs.status = "Progressing"
+            hs.message = "Waiting for rollout to initialize"
+            return hs
+          end
+          if obj.status.conditions ~= nil then
+            for i, condition in ipairs(obj.status.conditions) do
+              if condition.type == "InvalidSpec" then
+                hs.status = "Degraded"
+                hs.message = condition.message
+                return hs
+              end
+              if condition.type == "Progressing" and condition.reason == "ProgressDeadlineExceeded" then
+                hs.status = "Degraded"
+                hs.message = condition.message
+                return hs
+              end
+            end
+          end
+          if obj.status.phase == "Paused" then
+            hs.status = "Suspended"
+            hs.message = "Rollout is paused"
+            return hs
+          end
+          if obj.status.updatedReplicas == obj.status.replicas and
+             obj.status.readyReplicas == obj.status.replicas and
+             obj.status.availableReplicas == obj.status.replicas then
+            hs.status = "Healthy"
+            hs.message = "Rollout is healthy"
+            return hs
+          end
+          hs.status = "Progressing"
+          hs.message = string.format("Updating: %d/%d replicas ready",
+            obj.status.readyReplicas or 0, obj.status.replicas or 0)
+          return hs
+      networking.k8s.io/Ingress:
+        health.lua: |
+          hs = {}
+          hs.status = "Healthy"
+          return hs
+      external-secrets.io/ExternalSecret:
+        health.lua: |
+          hs = {}
+          if obj.status == nil or obj.status.conditions == nil then
+            hs.status = "Progressing"
+            hs.message = "Waiting for ExternalSecret to sync"
+            return hs
+          end
+          for i, condition in ipairs(obj.status.conditions) do
+            if condition.type == "Ready" then
+              if condition.status == "True" then
+                hs.status = "Healthy"
+                hs.message = "ExternalSecret synced"
+              else
+                hs.status = "Degraded"
+                hs.message = condition.message
+              end
+              return hs
+            end
+          end
+          hs.status = "Progressing"
+          hs.message = "Syncing"
+          return hs
+
+    # Resource exclusions — لا تتتبع الـ objects التي تتغير باستمرار
+    resource.exclusions: |
+      - apiGroups:
+          - cilium.io
+        kinds:
+          - CiliumIdentity
+        clusters:
+          - "*"
+
+    # Timeout للـ reconciliation
+    timeout.reconciliation: 180s
+
+    # Server-side apply مفعَّل للـ CRDs الكبيرة
+    server.side.diff.enabled: "true"
+
+  # ─── RBAC ─────────────────────────────────────────────────────────────────
+  rbac:
+    # القاعدة الافتراضية: قراءة فقط لأي مستخدم مصادق عليه
+    policy.default: role:readonly
+
+    # سياسة RBAC — يتطابق مع متطلبات GAP-01
+    policy.csv: |
+      # ── DevOps Team — تحكم كامل في التطبيقات ─────────────────────
+      p, role:devops, applications,  *,      */*, allow
+      p, role:devops, clusters,      get,    *,   allow
+      p, role:devops, repositories,  *,      *,   allow
+      p, role:devops, projects,       get,    *,   allow
+      p, role:devops, logs,           get,    *,   allow
+      p, role:devops, exec,           create, *,   allow
+      # ── Group binding ─────────────────────────────────────────────
+      g, platform-devops, role:devops
+      # ── Read-only لكل المستخدمين المصادق عليهم ────────────────────
+      p, role:readonly, applications,  get,    */*, allow
+      p, role:readonly, clusters,       get,    *,   allow
+      p, role:readonly, repositories,   get,    *,   allow
+
+    scopes: "[groups, email]"
+
+  # ─── Secret إدارة الـ admin password عبر ExternalSecrets ─────────────────
+  # لا نستخدم argocd-initial-admin-secret في production
+  secret:
+    # تعطيل إنشاء الـ admin password الافتراضي
+    # الـ password يأتي من ExternalSecret (platform/argocd → ADMIN_PASSWORD)
+    createSecret: false
+
+  # ─── Params ───────────────────────────────────────────────────────────────
+  params:
+    # TLS مُنهى على Envoy Gateway
+    server.insecure: true
+    # تفعيل server-side apply
+    server.enable.gzip: true
+    # Repo server workers
+    reposerver.parallelism.limit: 10
+    # Controller
+    controller.status.processors: 50
+    controller.operation.processors: 25
+    controller.repo.server.timeout.seconds: 180
+
+# ── ArgoCD Server ─────────────────────────────────────────────────────────────
+server:
+  replicas: 2
+
+  # ─── Autoscaling ────────────────────────────────────────────────────────
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  # ─── Resources ──────────────────────────────────────────────────────────
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # ─── Security Context ───────────────────────────────────────────────────
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+
+  # ─── HA Topology ────────────────────────────────────────────────────────
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: argocd-server
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: argocd-server
+
+  # ─── Service ────────────────────────────────────────────────────────────
+  service:
+    type: ClusterIP
+    port: 80
+    portName: http
+
+  # ─── HTTPRoute للـ Envoy Gateway ────────────────────────────────────────
+  # يُنشئ HTTPRoute بدلاً من Ingress (يتطابق مع Envoy Gateway v1.1.0)
+  ingress:
+    enabled: false  # نستخدم HTTPRoute منفصل (انظر infra/argocd/httproute.yaml)
+
+  # ─── Metrics ────────────────────────────────────────────────────────────
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: false  # Victoria Metrics يسحب مباشرة بدون ServiceMonitor
+
+# ── Repo Server ───────────────────────────────────────────────────────────────
+repoServer:
+  replicas: 2
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: argocd-repo-server
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: argocd-repo-server
+
+  metrics:
+    enabled: true
+
+# ── Application Set Controller ────────────────────────────────────────────────
+applicationSet:
+  replicas: 2
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: argocd-applicationset-controller
+
+  metrics:
+    enabled: true
+
+# ── Application Controller ────────────────────────────────────────────────────
+controller:
+  # Single replica — ArgoCD application controller لا يدعم multi-replica بشكل كامل
+  replicas: 1
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+
+  metrics:
+    enabled: true
+
+# ── Redis HA ──────────────────────────────────────────────────────────────────
+redis-ha:
+  enabled: true
+  # 3 replicas مع sentinel لـ HA حقيقية
+  replicas: 3
+
+  redis:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+  sentinel:
+    resources:
+      requests:
+        cpu: 20m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          app: redis-ha
+
+# Redis بدون HA — مُعطَّل (نستخدم redis-ha بدلاً منه)
+redis:
+  enabled: false
+
+# ── Notifications ─────────────────────────────────────────────────────────────
+notifications:
+  enabled: true
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+
+  # ─── Secret يأتي من ExternalSecret (infra/argocd/argocd-notifications-externalsecret.yaml)
+  # platform/argocd → SLACK_TOKEN
+  secret:
+    create: false  # يُنشأ بواسطة ExternalSecret
+
+  # ─── Templates ──────────────────────────────────────────────────────────
+  notifiers:
+    service.slack: |
+      token: $slack-token
+
+  templates:
+    template.app-sync-failed: |
+      message: |
+        :red_circle: *{{ .app.metadata.name }}* sync FAILED
+        *Repo:* {{ .app.spec.source.repoURL }}
+        *Path:* {{ .app.spec.source.path }}
+        *Revision:* {{ .app.spec.source.targetRevision }}
+        *Error:* {{ .app.status.operationState.message }}
+      slack:
+        attachments: |
+          [{
+            "title": "{{ .app.metadata.name }} — Sync Failed",
+            "color": "#E53935",
+            "fields": [
+              {"title": "Namespace", "value": "{{ .app.spec.destination.namespace }}", "short": true},
+              {"title": "Revision",  "value": "{{ .app.status.sync.revision }}", "short": true}
+            ]
+          }]
+
+    template.app-health-degraded: |
+      message: |
+        :warning: *{{ .app.metadata.name }}* health DEGRADED
+        *Status:* {{ .app.status.health.status }}
+        *Message:* {{ .app.status.health.message }}
+      slack:
+        attachments: |
+          [{
+            "title": "{{ .app.metadata.name }} — Health Degraded",
+            "color": "#FF6F00",
+            "fields": [
+              {"title": "Namespace", "value": "{{ .app.spec.destination.namespace }}", "short": true},
+              {"title": "Status",    "value": "{{ .app.status.health.status }}", "short": true}
+            ]
+          }]
+
+    template.app-sync-succeeded: |
+      message: |
+        :white_check_mark: *{{ .app.metadata.name }}* synced successfully
+        *Revision:* {{ .app.status.sync.revision }}
+      slack:
+        attachments: |
+          [{
+            "title": "{{ .app.metadata.name }} — Sync Succeeded",
+            "color": "#43A047",
+            "fields": [
+              {"title": "Namespace", "value": "{{ .app.spec.destination.namespace }}", "short": true},
+              {"title": "Revision",  "value": "{{ .app.status.sync.revision }}", "short": true}
+            ]
+          }]
+
+  # ─── Triggers ───────────────────────────────────────────────────────────
+  triggers:
+    trigger.on-sync-failed: |
+      - when: app.status.operationState.phase in ['Error', 'Failed']
+        send: [app-sync-failed]
+
+    trigger.on-health-degraded: |
+      - when: app.status.health.status == 'Degraded'
+        send: [app-health-degraded]
+
+    trigger.on-sync-succeeded: |
+      - when: app.status.operationState.phase in ['Succeeded']
+        send: [app-sync-succeeded]
+
+  # ─── Default subscriptions — يتطابق مع channels الموجودة ──────────────
+  subscriptions:
+    - recipients:
+        - slack:#alerts-deploy
+      triggers:
+        - on-sync-failed
+        - on-sync-succeeded
+    - recipients:
+        - slack:#alerts-critical
+      triggers:
+        - on-health-degraded
