@@ -1,19 +1,25 @@
-// ╔══════════════════════════════════════════════════════════════════════════╗
-// ║  المسار الكامل: services/ingestion/internal/kafka/feature_event.go      ║
-// ║  الحالة: 🆕 جديد                                                        ║
-// ╚══════════════════════════════════════════════════════════════════════════╝
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  Full path: services/ingestion/internal/kafka/feature_event.go  ║
+// ║  Status: 🆕 New                                                  ║
+// ╚══════════════════════════════════════════════════════════════════╝
 
 package kafka
 
-// ─────────────────────────────────────────────────────────────────────────────
 // FeatureEvent — البنية التي تُرسَل إلى Redpanda topic "feature-events"
 //
-// Encoding: JSON (مقروء، سريع، لا يحتاج protoc)
-// المرحلة القادمة: استبدال بـ proto.Marshal بعد تشغيل buf generate
-// التوثيق: services/ingestion/internal/schema/feature_event.proto
-// ─────────────────────────────────────────────────────────────────────────────
+// Encoding: JSON (مقروء، بدون codegen dependency)
+// Schema contract: services/ingestion/internal/schema/feature_event.proto
+// Key (Redpanda): tenant_id — يضمن ordered delivery per tenant
+//
+// الحقول مطابقة 1-to-1 لـ proto message FeatureEvent:
+//   event_id      → field 1
+//   tenant_id     → field 2
+//   source_type   → field 3
+//   feature_vector → field 4
+//   metadata      → field 5
+//   occurred_at   → field 6 (Unix milliseconds)
 type FeatureEvent struct {
-	// معرّف فريد — يأتي من main.go كـ "evt-{UnixNano}"
+	// معرّف فريد — "evt-{UnixNano}" من main.go
 	EventID string `json:"event_id"`
 
 	// معرّف الـ tenant — مطلوب دائماً (RLS)
@@ -22,7 +28,7 @@ type FeatureEvent struct {
 	// نوع مصدر الحدث — من X-Event-Type header
 	SourceType string `json:"source_type,omitempty"`
 
-	// Feature vector — يُملَأ لاحقاً من ML feature extraction pipeline
+	// Feature vector — يُملَأ لاحقاً من ML pipeline
 	FeatureVector []float64 `json:"feature_vector,omitempty"`
 
 	// metadata إضافية
