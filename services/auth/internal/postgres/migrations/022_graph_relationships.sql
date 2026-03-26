@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS entity_relationships (
 );
 
 -- ── 2. Indexes ────────────────────────────────────────────────────────────
+
 -- Tenant isolation — required for RLS scan efficiency
 CREATE INDEX IF NOT EXISTS idx_entity_rel_tenant
     ON entity_relationships (tenant_id);
@@ -46,7 +47,7 @@ CREATE INDEX IF NOT EXISTS idx_entity_rel_to
 CREATE INDEX IF NOT EXISTS idx_entity_rel_type
     ON entity_relationships (tenant_id, relationship);
 
--- Temporal validity queries — partial index, avoids scanning NULL valid_to rows
+-- Temporal validity queries — partial index avoids scanning NULL valid_to rows
 CREATE INDEX IF NOT EXISTS idx_entity_rel_valid_range
     ON entity_relationships (tenant_id, valid_from, valid_to)
     WHERE valid_to IS NOT NULL;
@@ -72,7 +73,7 @@ CREATE POLICY tenant_isolation_entity_relationships
 -- +goose StatementBegin
 
 DROP POLICY  IF EXISTS tenant_isolation_entity_relationships ON entity_relationships;
-ALTER TABLE entity_relationships DISABLE ROW LEVEL SECURITY;
+ALTER TABLE  entity_relationships DISABLE ROW LEVEL SECURITY;
 DROP TABLE   IF EXISTS entity_relationships CASCADE;
 
 -- +goose StatementEnd
