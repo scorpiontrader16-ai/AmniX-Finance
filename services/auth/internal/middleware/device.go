@@ -19,19 +19,7 @@ func DeviceFingerprintMiddleware(next http.Handler) http.Handler {
 		fingerprintData := strings.Join([]string{ua, ip, acceptLang}, "|")
 		hash := sha256.Sum256([]byte(fingerprintData))
 		fingerprint := hex.EncodeToString(hash[:])
-
 		ctx := context.WithValue(r.Context(), DeviceFingerprintKey, fingerprint)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
-context_keys.go
-package middleware
-
-type contextKey string
-
-const (
-	DeviceFingerprintKey contextKey = "device_fingerprint"
-	TenantIDKey          contextKey = "tenant_id"
-	UserIDKey            contextKey = "user_id"
-	SessionIDKey         contextKey = "session_id"
-)
