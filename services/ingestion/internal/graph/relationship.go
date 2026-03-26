@@ -31,7 +31,7 @@ type Relationship struct {
 }
 
 // Store persists entity graph relationships to PostgreSQL.
-// It wraps *postgres.Client to stay consistent with service-wide DB access patterns.
+// Wraps *postgres.Client to stay consistent with service-wide DB access patterns.
 type Store struct {
 	pg     *postgres.Client
 	logger *slog.Logger
@@ -67,9 +67,9 @@ func (s *Store) AddRelationship(ctx context.Context, rel Relationship) error {
 		rel.ToEntity,
 		rel.Type,
 		rel.Weight,
-		metadataJSON,       // []byte → JSONB; nil → SQL NULL
+		metadataJSON,
 		nullableString(rel.Source),
-		rel.ValidFrom,      // *time.Time → TIMESTAMPTZ; nil → SQL NULL
+		rel.ValidFrom,
 		rel.ValidTo,
 	)
 	if err != nil {
@@ -88,14 +88,15 @@ func (s *Store) AddRelationship(ctx context.Context, rel Relationship) error {
 }
 
 // AddRelationshipBatch inserts multiple directed edges in a single transaction.
-// Each relationship is validated before the transaction begins.
+// All relationships are validated before the transaction begins.
 // On any error the transaction is rolled back atomically.
 func (s *Store) AddRelationshipBatch(ctx context.Context, rels []Relationship) (err error) {
 	if len(rels) == 0 {
 		return nil
 	}
 
-	// Validate all relationships before opening a transaction.
+	// Validate all relationships before opening a transaction —
+	// avoids wasting a DB connection on invalid input.
 	for i, rel := range rels {
 		if verr := validateRelationship(rel); verr != nil {
 			return fmt.Errorf("graph: invalid relationship at index %d: %w", i, verr)
@@ -106,8 +107,9 @@ func (s *Store) AddRelationshipBatch(ctx context.Context, rels []Relationship) (
 	if err != nil {
 		return fmt.Errorf("graph: begin batch transaction: %w", err)
 	}
+	// Named return (err error) ensures the defer sees the final error value,
+	// so Rollback is called correctly on any failure path.
 	defer func() {
-		// err is the named return — captures any error set after BeginTx.
 		if err != nil {
 			_ = tx.Rollback()
 		}
@@ -153,7 +155,7 @@ func (s *Store) AddRelationshipBatch(ctx context.Context, rels []Relationship) (
 	return nil
 }
 
-// ── Domain validation ─────────────────────────────────────────────────────
+// ── Domain validation ─────────────────────────────────────────────────────────
 
 func validateRelationship(rel Relationship) error {
 	if rel.TenantID == "" {
@@ -178,10 +180,10 @@ func validateRelationship(rel Relationship) error {
 	return nil
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-// marshalMetadata returns nil (SQL NULL) when metadata is nil or empty,
-// and JSON bytes otherwise. Avoids storing JSON "null" in the column.
+// marshalMetadata returns nil (SQL NULL) when metadata is nil or empty.
+// Avoids storing JSON "null" or "{}" in the JSONB column.
 func marshalMetadata(m map[string]interface{}) ([]byte, error) {
 	if len(m) == 0 {
 		return nil, nil
