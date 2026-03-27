@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════════════════╗
 # ║  Full path: .github/workflows/promote-staging-to-prod.yml           ║
-# ║  Status: 🆕 New — GAP-01 Step 4                                     ║
+# ║  Status: ✏️ Modified — GAP-01 Step 4                                ║
 # ╚══════════════════════════════════════════════════════════════════════╝
 #
 # ─────────────────────────────────────────────────────────────────────────────
@@ -10,21 +10,24 @@
 #   ArgoCD (platform-appset) يلتقط التغيير ويُزامن production تلقائياً
 #
 # دورة الحياة الكاملة:
-#   1. release.yml  → يبني image جديد → يُحدِّث staging overlay newTag
-#   2. platform-appset → يُزامن staging تلقائياً (ArgoCD)
-#   3. هذا الـ workflow → يُحدِّث production overlay newTag (يدوي)
+#   1. release.yml  → يبني image جديد → يُحدِّث production overlay newTag
+#   2. platform-appset → يُزامن production تلقائياً (ArgoCD)
+#   3. هذا الـ workflow → ترقية يدوية عند الحاجة
 #   4. platform-appset → يُزامن production تلقائياً (ArgoCD)
 #
 # المدخلات:
 #   service: اسم الـ service من قائمة الـ 15 service
-#   version: الـ version للترقية (اختياري — يُقرأ من staging إذا لم يُحدَّد)
+#   version: الـ version للترقية (مطلوب — صيغة x.y.z)
+#   reason:  سبب الترقية (يظهر في git commit message)
 #
 # الأمان:
-#   • concurrency: cancel-in-progress: false — لا نلغي ترقية جارية أبداً
+#   • concurrency per-service: لا ترقيتان على نفس الـ service في نفس الوقت
+#   • cancel-in-progress: false — لا نلغي ترقية جارية أبداً
 #   • semver validation: يرفض version بصيغة خاطئة
+#   • GHCR verification: يتحقق من وجود الـ image قبل التعديل
 #   • git diff check: لا commit إذا لا يوجد تغيير فعلي
-#   • retry logic: 3 محاولات مع exponential backoff عند push failure
 #   • [skip ci]: يمنع trigger CI على commit الترقية
+#   • retry logic: 3 محاولات مع exponential backoff عند push failure
 #
 # التطبيق:
 #   GitHub → Actions → Promote Staging to Production → Run workflow
@@ -55,23 +58,35 @@ on:
           - realtime
           - ml-engine
       version:
-        description: 'Version to promote (e.g. 1.2.3) — leave empty to use current staging version'
-        required: false
+        description: 'Version to promote (e.g. 1.2.3)'
+        required: true
         type: string
+      reason:
+        description: 'Reason for promotion (appears in git commit message)'
+        required: true
+        type: string
+        default: 'scheduled promotion'
 
+# concurrency per-service — ترقيتان مختلفتان يمكن أن تعملا بالتوازي
+# لكن لا ترقيتان على نفس الـ service في نفس الوقت
 concurrency:
   group: promote-${{ github.event.inputs.service }}
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read   # job-level overrides — defined explicitly per-job
 
 jobs:
   promote:
-    name: Promote ${{ github.event.inputs.service }} → production
+    name: Promote ${{ github.event.inputs.service }} to production
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      packages: read
+    environment:
+      name: production
+      url: https://argocd.platform.com
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -81,7 +96,7 @@ jobs:
       - name: Configure Git
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
+          git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Install yq
@@ -93,69 +108,87 @@ jobs:
           chmod +x /usr/local/bin/yq
           yq --version
 
-      - name: Resolve version
-        id: resolve
+      - name: Validate inputs
+        id: validate
         run: |
           set -euo pipefail
           IFS=$'\n\t'
 
           SERVICE="${{ github.event.inputs.service }}"
           VERSION="${{ github.event.inputs.version }}"
-
-          STAGING_FILE="k8s/overlays/staging/${SERVICE}/kustomization.yaml"
           PROD_FILE="k8s/overlays/production/${SERVICE}/kustomization.yaml"
 
-          # ── Preflight checks ────────────────────────────────────────────
-          if [ ! -f "${STAGING_FILE}" ]; then
-            echo "::error::Staging overlay not found: ${STAGING_FILE}"
-            exit 1
-          fi
-
-          if [ ! -f "${PROD_FILE}" ]; then
-            echo "::error::Production overlay not found: ${PROD_FILE}"
-            exit 1
-          fi
-
-          # ── Auto-detect version من staging إذا لم يُحدَّد ──────────────
-          if [ -z "${VERSION}" ]; then
-            VERSION=$(yq '.images[0].newTag' "${STAGING_FILE}")
-            echo "Auto-detected staging version: ${VERSION}"
-          fi
-
-          if [ -z "${VERSION}" ] || [ "${VERSION}" = "null" ]; then
-            echo "::error::Could not determine version — check images[0].newTag in ${STAGING_FILE}"
-            exit 1
-          fi
-
-          # ── Validate semantic version format (x.y.z) ────────────────────
+          # ── Validate semver format (x.y.z) ──────────────────────────────
           if ! echo "${VERSION}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "::error::Invalid version format '${VERSION}' — expected x.y.z (e.g. 1.2.3)"
             exit 1
           fi
 
-          echo "version=${VERSION}"        >> "${GITHUB_OUTPUT}"
-          echo "staging_file=${STAGING_FILE}" >> "${GITHUB_OUTPUT}"
-          echo "prod_file=${PROD_FILE}"    >> "${GITHUB_OUTPUT}"
-          echo "service=${SERVICE}"        >> "${GITHUB_OUTPUT}"
+          # ── Verify production overlay exists ────────────────────────────
+          if [ ! -f "${PROD_FILE}" ]; then
+            echo "::error::Production overlay not found: ${PROD_FILE}"
+            exit 1
+          fi
+
+          echo "version=${VERSION}"       >> "${GITHUB_OUTPUT}"
+          echo "prod_file=${PROD_FILE}"   >> "${GITHUB_OUTPUT}"
+          echo "service=${SERVICE}"       >> "${GITHUB_OUTPUT}"
+          echo "Inputs validated — service=${SERVICE} version=${VERSION}"
+
+      - name: Verify image exists in GHCR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          IFS=$'\n\t'
+
+          SERVICE="${{ steps.validate.outputs.service }}"
+          VERSION="${{ steps.validate.outputs.version }}"
+          ORG="scorpiontrader16-ai"
+          REPO="youtuop-1"
+
+          # GHCR OCI Registry API — لا يحتاج docker login
+          # يُرجع 200 إذا وُجد الـ manifest، 401/404 إذا لم يُوجد
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.oci.image.manifest.v1+json" \
+            "https://ghcr.io/v2/${ORG}/${REPO}/${SERVICE}/manifests/${VERSION}")
+
+          echo "GHCR API: ${ORG}/${REPO}/${SERVICE}:${VERSION} -> HTTP ${HTTP_STATUS}"
+
+          if [ "${HTTP_STATUS}" != "200" ]; then
+            echo "::error::Image not found in GHCR: ghcr.io/${ORG}/${REPO}/${SERVICE}:${VERSION} (HTTP ${HTTP_STATUS})"
+            echo "::error::Run release.yml first to build and push this version."
+            exit 1
+          fi
+          echo "Image verified: ghcr.io/${ORG}/${REPO}/${SERVICE}:${VERSION}"
 
       - name: Read current production version
         id: current
         run: |
           set -euo pipefail
-          CURRENT=$(yq '.images[0].newTag' "${{ steps.resolve.outputs.prod_file }}")
+          PROD_FILE="${{ steps.validate.outputs.prod_file }}"
+          CURRENT=$(yq '.images[0].newTag' "${PROD_FILE}")
           echo "current_version=${CURRENT}" >> "${GITHUB_OUTPUT}"
-          echo "Current production: ${CURRENT}"
-          echo "Promoting to:       ${{ steps.resolve.outputs.version }}"
+          echo "Current production version : ${CURRENT}"
+          echo "Promoting to version       : ${{ steps.validate.outputs.version }}"
 
       - name: Update production kustomization
         run: |
           set -euo pipefail
           IFS=$'\n\t'
 
-          VERSION="${{ steps.resolve.outputs.version }}"
-          PROD_FILE="${{ steps.resolve.outputs.prod_file }}"
+          VERSION="${{ steps.validate.outputs.version }}"
+          PROD_FILE="${{ steps.validate.outputs.prod_file }}"
 
           yq -i ".images[0].newTag = \"${VERSION}\"" "${PROD_FILE}"
+
+          # Verify the update was applied correctly
+          ACTUAL=$(yq '.images[0].newTag' "${PROD_FILE}")
+          if [ "${ACTUAL}" != "${VERSION}" ]; then
+            echo "::error::Tag update failed — expected ${VERSION}, got ${ACTUAL}"
+            exit 1
+          fi
 
           echo "Updated ${PROD_FILE}:"
           cat "${PROD_FILE}"
@@ -165,26 +198,28 @@ jobs:
           set -euo pipefail
           IFS=$'\n\t'
 
-          SERVICE="${{ steps.resolve.outputs.service }}"
-          VERSION="${{ steps.resolve.outputs.version }}"
+          SERVICE="${{ steps.validate.outputs.service }}"
+          VERSION="${{ steps.validate.outputs.version }}"
           FROM="${{ steps.current.outputs.current_version }}"
-          PROD_FILE="${{ steps.resolve.outputs.prod_file }}"
+          REASON="${{ github.event.inputs.reason }}"
+          PROD_FILE="${{ steps.validate.outputs.prod_file }}"
 
           git add "${PROD_FILE}"
 
           # لا commit إذا لا يوجد تغيير فعلي
           if git diff --staged --quiet; then
-            echo "⚠️  No changes — production already at version ${VERSION}"
+            echo "No changes — production already at version ${VERSION}"
             exit 0
           fi
 
           # [skip ci] — يمنع trigger CI مجدداً على هذا الـ commit
-          git commit -m "chore(promote): ${SERVICE} ${FROM} → ${VERSION} [skip ci]"
+          COMMIT_MSG="chore(promote): ${SERVICE} ${FROM} to ${VERSION} [skip ci] | reason: ${REASON} | by: ${{ github.actor }} | run: ${{ github.run_id }}"
+          git commit -m "${COMMIT_MSG}"
 
           # Retry logic — max 3 attempts مع exponential backoff
           for attempt in 1 2 3; do
             if git push origin main; then
-              echo "✅ Promoted ${SERVICE}: ${FROM} → ${VERSION}"
+              echo "Promoted ${SERVICE}: ${FROM} to ${VERSION}"
               break
             fi
             if [ "${attempt}" -eq 3 ]; then
@@ -195,3 +230,22 @@ jobs:
             sleep $((attempt * 5))
             git pull --rebase origin main
           done
+
+      - name: Summary
+        run: |
+          set -euo pipefail
+          SERVICE="${{ steps.validate.outputs.service }}"
+          VERSION="${{ steps.validate.outputs.version }}"
+          FROM="${{ steps.current.outputs.current_version }}"
+
+          echo "## Promotion Complete" >> "${GITHUB_STEP_SUMMARY}"
+          echo "" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Field | Value |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "|-------|-------|" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Service | ${SERVICE} |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| From | ${FROM} |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| To | ${VERSION} |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Promoted by | @${{ github.actor }} |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Reason | ${{ github.event.inputs.reason }} |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "" >> "${GITHUB_STEP_SUMMARY}"
+          echo "ArgoCD will sync automatically within 3 minutes." >> "${GITHUB_STEP_SUMMARY}"
