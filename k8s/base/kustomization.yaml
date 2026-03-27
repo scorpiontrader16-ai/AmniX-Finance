@@ -23,10 +23,8 @@ resources:
   - tenant-operator
   - processing
   - hydration
-  - sync
   # ── Infrastructure ────────────────────────────────────────────────
   - cilium
-  - chaos
   - external-secrets
   - cert-manager
   - pgbouncer       # ✏️ مُضاف — M9 Connection Pooling
