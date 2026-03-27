@@ -1,6 +1,36 @@
 # ╔══════════════════════════════════════════════════════════════════════╗
 # ║  Full path: infra/argocd/apps/applications.yaml                     ║
-# ║  Status: ✏️ Modified — falco converted to multi-source (GAP-03 S2)  ║
+# ║  Status: ✅ MERGED — Best-of-all-three final version                ║
+# ║                                                                      ║
+# ║  Base    : GAP-01  (platform-appset architecture)                   ║
+# ║  Added   : ServerSideApply=true on monitoring      ← SSA-Fix        ║
+# ║  Added   : ingestion standalone Application        ← GAP-03 + SSA  ║
+# ║            (commented — managed by platform-appset)                 ║
+# ║  Added   : processing standalone Application       ← GAP-03 + SSA  ║
+# ║            (commented — managed by platform-appset)                 ║
+# ║                                                                      ║
+# ║  Feature matrix (all three files merged):                           ║
+# ║  ┌─────────────────────────────┬────────┬────────┬────────┐        ║
+# ║  │ Feature                     │ F1     │ F2     │ F3     │        ║
+# ║  ├─────────────────────────────┼────────┼────────┼────────┤        ║
+# ║  │ platform-appset (15 svcs)   │ ✅     │ ❌     │ ❌     │        ║
+# ║  │ ingestion + ignoreDiff      │ ❌     │ ✅     │ ✅     │        ║
+# ║  │ processing + ignoreDiff     │ ❌     │ ✅     │ ✅     │        ║
+# ║  │ ingestion ServerSideApply   │ ❌     │ ❌     │ ✅     │        ║
+# ║  │ processing ServerSideApply  │ ❌     │ ❌     │ ✅     │        ║
+# ║  │ monitoring ServerSideApply  │ ❌     │ ❌     │ ✅     │        ║
+# ║  │ Falco multi-source + docs   │ ✅     │ ✅     │ ✅     │        ║
+# ║  └─────────────────────────────┴────────┴────────┴────────┘        ║
+# ║                                                                      ║
+# ║  ARCHITECTURAL NOTE — ingestion / processing:                       ║
+# ║    In GAP-01, both services were moved into platform-appset.        ║
+# ║    Their standalone Application definitions are preserved below     ║
+# ║    as commented-out blocks so that:                                 ║
+# ║      a) ignoreDifferences (Rollout /spec/replicas) config is        ║
+# ║         not lost — mirror it into the ApplicationSet template.      ║
+# ║      b) Rollback to standalone mode is a one-line uncomment.        ║
+# ║    Do NOT uncomment while platform-appset is active — duplicate     ║
+# ║    ArgoCD Applications managing the same resources will conflict.   ║
 # ╚══════════════════════════════════════════════════════════════════════╝
 #
 # App-of-Apps root manifest.
@@ -8,16 +38,21 @@
 # Sync wave order (enforced by ArgoCD):
 #   -2 → kyverno
 #   -1 → kyverno-policies, envoy-gateway
-#    0 → api-gateway
-#    1 → ingestion, processing, monitoring, falco-config
+#    0 → api-gateway, platform-appset
+#    1 → monitoring, falco-config
+#         [ingestion, processing — delegated to platform-appset]
 #    2 → falco  (Helm chart — depends on falco-config for the Secret)
 #
-# Change log (GAP-03 Step 2):
-#   • Application `falco`: converted from single source (Helm only) to
-#     multi-source so that $values can reference
-#     infra/falco/platform-rules.yaml from the platform Git repo.
-#   • All other Applications are byte-for-byte identical to the previous
-#     version — no functional change.
+# Change log (MERGED):
+#   • Application `ingestion`       : removed → managed by platform-appset
+#                                     standalone definition preserved (commented)
+#                                     with ignoreDifferences + ServerSideApply
+#   • Application `processing`      : removed → managed by platform-appset
+#                                     standalone definition preserved (commented)
+#                                     with ignoreDifferences + ServerSideApply
+#   • Application `platform-appset` : added (wave 0) — manages all 15 services
+#   • monitoring syncOptions        : added ServerSideApply=true (StatefulSet fix)
+#   • All other Applications        : byte-for-byte identical to GAP-01 base
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Root App-of-Apps ──────────────────────────────────────────────────────────
@@ -172,23 +207,40 @@ spec:
       - ServerSideApply=true
 
 ---
-# ── Wave 1: Ingestion service ─────────────────────────────────────────────────
+# ── Wave 0: Platform AppSet — يُدير جميع الـ 15 service ──────────────────────
+# يُطلق بعد api-gateway مباشرة (نفس الـ wave).
+# ينشئ Application لكل service باسم {service}-prod.
+# ingestion و processing مُدارتان من هنا — لا يوجد Application مستقل لكل منهما.
+#
+# ⚠️  IMPORTANT: The ApplicationSet template at infra/argocd/applicationsets
+#     MUST include the following ignoreDifferences block for every service
+#     that uses Argo Rollouts (ingestion, processing), to prevent ArgoCD
+#     from reverting HPA-managed replica counts:
+#
+#       ignoreDifferences:
+#         - group: argoproj.io
+#           kind: Rollout
+#           jsonPointers:
+#             - /spec/replicas
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: ingestion
+  name: platform-appset
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-wave: "0"
+  labels:
+    app.kubernetes.io/component: gitops
+    app.kubernetes.io/part-of: youtuop-platform
 spec:
   project: default
   source:
     repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
     targetRevision: main
-    path: k8s/overlays/production/ingestion
+    path: infra/argocd/applicationsets
   destination:
     server: https://kubernetes.default.svc
-    namespace: platform
+    namespace: argocd
   syncPolicy:
     automated:
       prune: true
@@ -196,46 +248,88 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
-  ignoreDifferences:
-    - group: argoproj.io
-      kind: Rollout
-      jsonPointers:
-        - /spec/replicas
 
----
-# ── Wave 1: Processing service ────────────────────────────────────────────────
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: processing
-  namespace: argocd
-  annotations:
-    argocd.argoproj.io/sync-wave: "1"
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
-    targetRevision: main
-    path: k8s/overlays/production/processing
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: platform
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
-      - ServerSideApply=true
-  ignoreDifferences:
-    - group: argoproj.io
-      kind: Rollout
-      jsonPointers:
-        - /spec/replicas
+# ─────────────────────────────────────────────────────────────────────────────
+# STANDALONE ingestion + processing (COMMENTED — managed by platform-appset)
+#
+# Uncomment ONLY if reverting to standalone mode.
+# Do NOT uncomment while platform-appset is active — duplicate Applications
+# managing the same namespace/resources will cause ArgoCD sync conflicts.
+#
+# Features captured here from all source files:
+#   • path: k8s/overlays/production/{service}      ← GAP-03 (File 2)
+#   • ignoreDifferences on Rollout /spec/replicas  ← GAP-03 (File 2)
+#   • ServerSideApply=true                         ← SSA-Fix (File 3)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ---
+# # ── Wave 1: Ingestion service (standalone mode) ───────────────────────────
+# apiVersion: argoproj.io/v1alpha1
+# kind: Application
+# metadata:
+#   name: ingestion
+#   namespace: argocd
+#   annotations:
+#     argocd.argoproj.io/sync-wave: "1"
+# spec:
+#   project: default
+#   source:
+#     repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
+#     targetRevision: main
+#     path: k8s/overlays/production/ingestion
+#   destination:
+#     server: https://kubernetes.default.svc
+#     namespace: platform
+#   syncPolicy:
+#     automated:
+#       prune: true
+#       selfHeal: true
+#     syncOptions:
+#       - CreateNamespace=true
+#       - ServerSideApply=true     # Required — prevents Rollout field manager conflicts
+#   ignoreDifferences:
+#     - group: argoproj.io
+#       kind: Rollout
+#       jsonPointers:
+#         - /spec/replicas         # Prevents ArgoCD from reverting HPA-managed replicas
+
+# ---
+# # ── Wave 1: Processing service (standalone mode) ──────────────────────────
+# apiVersion: argoproj.io/v1alpha1
+# kind: Application
+# metadata:
+#   name: processing
+#   namespace: argocd
+#   annotations:
+#     argocd.argoproj.io/sync-wave: "1"
+# spec:
+#   project: default
+#   source:
+#     repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
+#     targetRevision: main
+#     path: k8s/overlays/production/processing
+#   destination:
+#     server: https://kubernetes.default.svc
+#     namespace: platform
+#   syncPolicy:
+#     automated:
+#       prune: true
+#       selfHeal: true
+#     syncOptions:
+#       - CreateNamespace=true
+#       - ServerSideApply=true     # Required — prevents Rollout field manager conflicts
+#   ignoreDifferences:
+#     - group: argoproj.io
+#       kind: Rollout
+#       jsonPointers:
+#         - /spec/replicas         # Prevents ArgoCD from reverting HPA-managed replicas
 
 ---
 # ── Wave 1: Monitoring stack ──────────────────────────────────────────────────
 # prune: false — intentional. Prevents accidental deletion of alerting state.
+# ServerSideApply: required for StatefulSet (alertmanager) field manager
+#   correctness. Without it, client-side apply causes conflicts on
+#   volumeClaimTemplates and selector fields, leading to sync failures.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -258,6 +352,7 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      - ServerSideApply=true   # ← ADDED from SSA-Fix: required for StatefulSet
 
 ---
 # ── Wave 1: Falco prerequisites (GAP-03) ─────────────────────────────────────
