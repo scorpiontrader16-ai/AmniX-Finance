@@ -1,0 +1,192 @@
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Full path: k8s/base/monitoring/alertmanager-statefulset.yaml       ║
+# ║  Status: 🆕 New — REPLACES alertmanager-deployment.yaml             ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# WHY StatefulSet AND NOT Deployment OR Argo Rollout:
+#
+#   The existing alertmanager-deployment.yaml contains:
+#     --cluster.peer=alertmanager-0.alertmanager-headless...
+#     --cluster.peer=alertmanager-1.alertmanager-headless...
+#
+#   These are StatefulSet ordinal DNS names. A Deployment creates pods with
+#   random suffixes (alertmanager-abc12-xyz34), which the headless Service
+#   does NOT assign stable DNS records to. This means HA gossip clustering
+#   was silently broken — both replicas were isolated, and duplicate alerts
+#   were being sent.
+#
+#   Argo Rollout is NOT appropriate here because:
+#     • AlertManager is infrastructure/observability, not a canary-deployed
+#       application service.
+#     • Rollout canary strategy assumes stateless HTTP services.
+#     • StatefulSet with persistent storage is the only correct pattern for
+#       AlertManager HA (silences + notification log must survive pod restarts).
+#
+# STORAGE:
+#   PVC via volumeClaimTemplates → storageClassName: gp3 (AWS EKS default).
+#   Each pod gets its own 1Gi volume for silences + notification log.
+#   If your cluster uses a different StorageClass name, update storageClassName.
+#   Verify with: kubectl get storageclass
+#
+# PREREQUISITE:
+#   Delete the old Deployment before applying:
+#     kubectl delete deployment alertmanager -n monitoring
+#   The StatefulSet will create new pods. Existing silences will be lost
+#   (they were stored in emptyDir and not persistent anyway in the old version).
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: alertmanager
+  namespace: monitoring
+  labels:
+    app: alertmanager
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: youtuop-platform
+spec:
+  serviceName: alertmanager-headless
+  replicas: 2
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+        app.kubernetes.io/name: alertmanager
+        app.kubernetes.io/component: monitoring
+    spec:
+      nodeSelector:
+        kubernetes.io/arch: arm64
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: alertmanager
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: alertmanager
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app: alertmanager
+      volumes:
+        - name: config-tmpl
+          configMap:
+            name: alertmanager-config
+        - name: config-rendered
+          emptyDir: {}
+
+      # ── Init Container: render config template with secrets ───────────────
+      initContainers:
+        - name: config-init
+          image: bhgedigital/envsubst:v1.2.0
+          command:
+            - sh
+            - -c
+            - |
+              envsubst < /tmpl/alertmanager.yml.tmpl > /etc/alertmanager/alertmanager.yml
+              echo "Config rendered successfully"
+          env:
+            - name: PAGERDUTY_ROUTING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-secrets
+                  key: PAGERDUTY_ROUTING_KEY
+            - name: SLACK_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-secrets
+                  key: SLACK_WEBHOOK_URL
+          volumeMounts:
+            - name: config-tmpl
+              mountPath: /tmpl
+              readOnly: true
+            - name: config-rendered
+              mountPath: /etc/alertmanager
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.27.0
+          args:
+            - --config.file=/etc/alertmanager/alertmanager.yml
+            - --storage.path=/alertmanager
+            - --web.listen-address=:9093
+            - --cluster.listen-address=0.0.0.0:9094
+            # StatefulSet ordinal DNS — stable names guaranteed by serviceName: alertmanager-headless
+            - --cluster.peer=alertmanager-0.alertmanager-headless.monitoring.svc.cluster.local:9094
+            - --cluster.peer=alertmanager-1.alertmanager-headless.monitoring.svc.cluster.local:9094
+            - --log.level=info
+          ports:
+            - name: http
+              containerPort: 9093
+            - name: cluster
+              containerPort: 9094
+          volumeMounts:
+            - name: config-rendered
+              mountPath: /etc/alertmanager
+              readOnly: true
+            - name: alertmanager-data
+              mountPath: /alertmanager
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9093
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9093
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+  # ── Persistent storage for silences + notification log ───────────────────
+  volumeClaimTemplates:
+    - metadata:
+        name: alertmanager-data
+        labels:
+          app: alertmanager
+          app.kubernetes.io/name: alertmanager
+          app.kubernetes.io/part-of: youtuop-platform
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: gp3
+        resources:
+          requests:
+            storage: 1Gi
