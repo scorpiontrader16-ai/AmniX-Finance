@@ -1,9 +1,29 @@
 # ╔══════════════════════════════════════════════════════════════════════╗
-# ║  المسار الكامل: k8s/base/monitoring/alertmanager-service.yaml       ║
-# ║  الحالة: 🆕 جديد                                                    ║
+# ║  Full path: k8s/base/monitoring/alertmanager-service.yaml           ║
+# ║  Status: ✏️ Modified — added publishNotReadyAddresses: true          ║
 # ╚══════════════════════════════════════════════════════════════════════╝
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# CHANGE FROM PREVIOUS VERSION:
+#   alertmanager-headless: added `publishNotReadyAddresses: true`
+#
+# WHY:
+#   With StatefulSet, pod alertmanager-0 starts first and waits for peer
+#   alertmanager-1 before becoming Ready. Without publishNotReadyAddresses,
+#   the headless Service only registers DNS for Ready pods, creating a
+#   chicken-and-egg deadlock:
+#     - alertmanager-0 not Ready because it can't reach alertmanager-1
+#     - alertmanager-1 DNS not published because alertmanager-0 not Ready
+#
+#   publishNotReadyAddresses: true registers DNS for ALL pods regardless of
+#   readiness, allowing both peers to discover each other during startup.
+#
+# UNCHANGED:
+#   The ClusterIP Service (alertmanager) is byte-for-byte identical to v1.
+# ─────────────────────────────────────────────────────────────────────────────
+
 ---
-# Service عادي لـ VMAlert و Grafana للوصول إلى AlertManager API
+# ClusterIP Service — VMAlert, Grafana, Falcosidekick → AlertManager API
 apiVersion: v1
 kind: Service
 metadata:
@@ -28,8 +48,9 @@ spec:
       port: 9094
       targetPort: 9094
       protocol: TCP
+
 ---
-# Headless Service — لـ HA cluster peer discovery بين الـ 2 replicas
+# Headless Service — StatefulSet ordinal DNS + HA peer discovery
 apiVersion: v1
 kind: Service
 metadata:
@@ -44,6 +65,7 @@ metadata:
 spec:
   type: ClusterIP
   clusterIP: None
+  publishNotReadyAddresses: true   # Required: allows peer DNS before pods are Ready
   selector:
     app: alertmanager
   ports:
