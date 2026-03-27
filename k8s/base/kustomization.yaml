@@ -1,7 +1,7 @@
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║  المسار الكامل: k8s/base/kustomization.yaml                     ║
-# ║  الحالة: ✏️ معدل — تم إضافة pgbouncer                           ║
-# ╚══════════════════════════════════════════════════════════════════╝
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Full path: k8s/base/kustomization.yaml                             ║
+# ║  Status: ✏️ Modified — added falco (GAP-03 Runtime Security)        ║
+# ╚══════════════════════════════════════════════════════════════════════╝
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -35,3 +35,4 @@ resources:
   - api-gateway
   - kyverno
   - velero
+  - falco           # ✏️ مُضاف — GAP-03 Runtime Security (ExternalSecret + NetworkPolicy)
