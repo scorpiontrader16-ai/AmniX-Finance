@@ -116,6 +116,7 @@ jobs:
 
           SERVICE="${{ github.event.inputs.service }}"
           VERSION="${{ github.event.inputs.version }}"
+          VERSION="${VERSION#v}"
           PROD_FILE="k8s/overlays/production/${SERVICE}/kustomization.yaml"
 
           # ── Validate semver format (x.y.z) ──────────────────────────────
