@@ -1,3 +1,7 @@
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Full path: k8s/base/namespaces.yaml                                ║
+# ║  Status: ✏️ Modified — added falco namespace (PSS privileged)       ║
+# ╚══════════════════════════════════════════════════════════════════════╝
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -11,3 +15,18 @@ metadata:
   name: monitoring
   labels:
     name: monitoring
+---
+# ── Falco Runtime Security ────────────────────────────────────────────────────
+# modern_ebpf يتطلب CAP_SYS_ADMIN + CAP_SYS_PTRACE + CAP_SYS_RESOURCE
+# بدون PSS privileged سيرفض Pod Security Admission تشغيل الـ DaemonSet
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: falco
+  labels:
+    name: falco
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+    app.kubernetes.io/part-of: youtuop-platform
+    app.kubernetes.io/managed-by: kustomize
