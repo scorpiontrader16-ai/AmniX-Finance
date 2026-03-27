@@ -1,0 +1,50 @@
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Full path: k8s/overlays/production/ml-engine/kustomization.yaml    ║
+# ║  Status: 🆕 New                                                      ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+# ─────────────────────────────────────────────────────────────────────────────
+# ml-engine service — Python
+# ذاكرة أعلى بكثير: ML models تستهلك memory كبيرة عند التحميل
+# CPU أعلى: inference workloads
+# الـ image tag يتحدث تلقائياً من release.yml workflow
+# لا تعدّل newTag يدوياً
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: platform
+resources:
+  - ../../../base/ml-engine
+images:
+  - name: ghcr.io/scorpiontrader16-ai/youtuop-1/ml-engine
+    newTag: "1.0.0"
+patches:
+  - target:
+      kind: Rollout
+      name: ml-engine
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "500m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "2"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "1Gi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "4Gi"
+      - op: add
+        path: /spec/template/spec/nodeSelector
+        value:
+          kubernetes.io/arch: arm64
+      - op: add
+        path: /spec/template/spec/tolerations
+        value:
+          - key: "kubernetes.io/arch"
+            operator: "Equal"
+            value: "arm64"
+            effect: "NoSchedule"
