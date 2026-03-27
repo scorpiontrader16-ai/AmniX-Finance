@@ -215,11 +215,6 @@ jobs:
     name: Create GitHub Release
     needs: [version, build-and-tag]
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      packages: write
-      id-token: write
-      workflows: write
     steps:
       - uses: actions/checkout@v4
         with:
