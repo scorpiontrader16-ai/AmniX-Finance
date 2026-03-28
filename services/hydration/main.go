@@ -126,7 +126,7 @@ func runWarmup(ctx context.Context, client processingv1.ProcessingEngineServiceC
 					SchemaVersion: "1.0.0",
 					OccurredAt:    timestamppb.Now(),
 					IngestedAt:    timestamppb.Now(),
-					TenantID:      "warmup",
+					TenantId:      "warmup",
 					PartitionKey:  "warmup",
 					ContentType:   "application/json",
 				},
