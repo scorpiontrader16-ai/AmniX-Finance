@@ -12,3 +12,15 @@ variable "enable_mena_region" {
   type        = bool
   default     = false
 }
+
+variable "aws_region" {
+  description = "AWS region for production environment"
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "cluster_name" {
+  description = "EKS cluster name for production"
+  type        = string
+  default     = "platform-prod"
+}

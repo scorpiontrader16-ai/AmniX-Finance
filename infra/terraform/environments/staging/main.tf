@@ -1,5 +1,4 @@
 terraform {
-  backend "s3" {}
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -19,15 +18,7 @@ provider "aws" {
   }
 }
 
-variable "aws_region" {
-  type    = string
-  default = "us-east-1"
-}
 
-variable "cluster_name" {
-  type    = string
-  default = "platform-staging"
-}
 
 module "vpc" {
   source          = "../../modules/networking"
