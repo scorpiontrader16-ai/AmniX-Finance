@@ -5,6 +5,7 @@ ARG BUILD_VERSION=dev
 WORKDIR /repo
 COPY go.mod go.sum ./
 COPY services/hydration/ ./services/hydration/
+# cache-bust: gen/ layer invalidated 2026-03-28
 COPY gen/ ./gen/
 WORKDIR /repo/services/hydration
 RUN go mod download && go mod verify
