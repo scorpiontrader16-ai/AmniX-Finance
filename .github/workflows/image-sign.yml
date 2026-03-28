@@ -15,6 +15,15 @@ on:
       - 'services/auth/**'
       - 'services/billing/**'
       - 'services/notifications/**'
+      - 'services/analytics/**'
+      - 'services/control-plane/**'
+      - 'services/developer-portal/**'
+      - 'services/feature-flags/**'
+      - 'services/jobs/**'
+      - 'services/realtime/**'
+      - 'services/search/**'
+      - 'services/tenant-operator/**'
+      - 'services/ml-engine/**'
       - 'proto/**'
 
 concurrency:
@@ -466,4 +475,697 @@ jobs:
         with:
           name: sbom-notifications
           path: sbom-notifications.spdx.json
+          retention-days: 90
+
+  build-sign-analytics:
+    name: Build, Sign & SBOM — Analytics
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.2.4'
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Get current version
+        id: version
+        run: |
+          LATEST=$(git tag --sort=-v:refname | grep '^v' | head -1)
+          if [ -z "$LATEST" ]; then LATEST="v0.0.0"; fi
+          VERSION="${LATEST#v}"
+          if [ -z "$VERSION" ]; then VERSION="0.0.0"; fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+      - name: Build & Push — Analytics
+        id: build-analytics
+        uses: docker/build-push-action@v5
+        with:
+          context: services/analytics
+          file: services/analytics/Dockerfile.arm64
+          platforms: linux/arm64,linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/analytics:latest
+            ghcr.io/${{ github.repository }}/analytics:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository }}/analytics:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Sign image — Analytics
+        run: |
+          cosign sign --yes \
+            ghcr.io/${{ github.repository }}/analytics@${{ steps.build-analytics.outputs.digest }}
+      - name: Generate SBOM — Analytics
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/${{ github.repository }}/analytics@${{ steps.build-analytics.outputs.digest }}
+          format: spdx-json
+          output-file: sbom-analytics.spdx.json
+      - name: Attach SBOM to image — Analytics
+        run: |
+          cosign attach sbom \
+            --sbom sbom-analytics.spdx.json \
+            ghcr.io/${{ github.repository }}/analytics@${{ steps.build-analytics.outputs.digest }}
+      - name: Scan SBOM for vulnerabilities — Analytics
+        uses: anchore/scan-action@v3
+        with:
+          sbom: sbom-analytics.spdx.json
+          fail-build: false
+          severity-cutoff: critical
+      - name: Upload SBOM — Analytics
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-analytics
+          path: sbom-analytics.spdx.json
+          retention-days: 90
+
+  build-sign-control-plane:
+    name: Build, Sign & SBOM — Control-Plane
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.2.4'
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Get current version
+        id: version
+        run: |
+          LATEST=$(git tag --sort=-v:refname | grep '^v' | head -1)
+          if [ -z "$LATEST" ]; then LATEST="v0.0.0"; fi
+          VERSION="${LATEST#v}"
+          if [ -z "$VERSION" ]; then VERSION="0.0.0"; fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+      - name: Build & Push — Control-Plane
+        id: build-control-plane
+        uses: docker/build-push-action@v5
+        with:
+          context: services/control-plane
+          file: services/control-plane/Dockerfile.arm64
+          platforms: linux/arm64,linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/control-plane:latest
+            ghcr.io/${{ github.repository }}/control-plane:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository }}/control-plane:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Sign image — Control-Plane
+        run: |
+          cosign sign --yes \
+            ghcr.io/${{ github.repository }}/control-plane@${{ steps.build-control-plane.outputs.digest }}
+      - name: Generate SBOM — Control-Plane
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/${{ github.repository }}/control-plane@${{ steps.build-control-plane.outputs.digest }}
+          format: spdx-json
+          output-file: sbom-control-plane.spdx.json
+      - name: Attach SBOM to image — Control-Plane
+        run: |
+          cosign attach sbom \
+            --sbom sbom-control-plane.spdx.json \
+            ghcr.io/${{ github.repository }}/control-plane@${{ steps.build-control-plane.outputs.digest }}
+      - name: Scan SBOM for vulnerabilities — Control-Plane
+        uses: anchore/scan-action@v3
+        with:
+          sbom: sbom-control-plane.spdx.json
+          fail-build: false
+          severity-cutoff: critical
+      - name: Upload SBOM — Control-Plane
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-control-plane
+          path: sbom-control-plane.spdx.json
+          retention-days: 90
+
+  build-sign-developer-portal:
+    name: Build, Sign & SBOM — Developer-Portal
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.2.4'
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Get current version
+        id: version
+        run: |
+          LATEST=$(git tag --sort=-v:refname | grep '^v' | head -1)
+          if [ -z "$LATEST" ]; then LATEST="v0.0.0"; fi
+          VERSION="${LATEST#v}"
+          if [ -z "$VERSION" ]; then VERSION="0.0.0"; fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+      - name: Build & Push — Developer-Portal
+        id: build-developer-portal
+        uses: docker/build-push-action@v5
+        with:
+          context: services/developer-portal
+          file: services/developer-portal/Dockerfile.arm64
+          platforms: linux/arm64,linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/developer-portal:latest
+            ghcr.io/${{ github.repository }}/developer-portal:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository }}/developer-portal:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Sign image — Developer-Portal
+        run: |
+          cosign sign --yes \
+            ghcr.io/${{ github.repository }}/developer-portal@${{ steps.build-developer-portal.outputs.digest }}
+      - name: Generate SBOM — Developer-Portal
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/${{ github.repository }}/developer-portal@${{ steps.build-developer-portal.outputs.digest }}
+          format: spdx-json
+          output-file: sbom-developer-portal.spdx.json
+      - name: Attach SBOM to image — Developer-Portal
+        run: |
+          cosign attach sbom \
+            --sbom sbom-developer-portal.spdx.json \
+            ghcr.io/${{ github.repository }}/developer-portal@${{ steps.build-developer-portal.outputs.digest }}
+      - name: Scan SBOM for vulnerabilities — Developer-Portal
+        uses: anchore/scan-action@v3
+        with:
+          sbom: sbom-developer-portal.spdx.json
+          fail-build: false
+          severity-cutoff: critical
+      - name: Upload SBOM — Developer-Portal
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-developer-portal
+          path: sbom-developer-portal.spdx.json
+          retention-days: 90
+
+  build-sign-feature-flags:
+    name: Build, Sign & SBOM — Feature-Flags
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.2.4'
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Get current version
+        id: version
+        run: |
+          LATEST=$(git tag --sort=-v:refname | grep '^v' | head -1)
+          if [ -z "$LATEST" ]; then LATEST="v0.0.0"; fi
+          VERSION="${LATEST#v}"
+          if [ -z "$VERSION" ]; then VERSION="0.0.0"; fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+      - name: Build & Push — Feature-Flags
+        id: build-feature-flags
+        uses: docker/build-push-action@v5
+        with:
+          context: services/feature-flags
+          file: services/feature-flags/Dockerfile.arm64
+          platforms: linux/arm64,linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/feature-flags:latest
+            ghcr.io/${{ github.repository }}/feature-flags:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository }}/feature-flags:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Sign image — Feature-Flags
+        run: |
+          cosign sign --yes \
+            ghcr.io/${{ github.repository }}/feature-flags@${{ steps.build-feature-flags.outputs.digest }}
+      - name: Generate SBOM — Feature-Flags
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/${{ github.repository }}/feature-flags@${{ steps.build-feature-flags.outputs.digest }}
+          format: spdx-json
+          output-file: sbom-feature-flags.spdx.json
+      - name: Attach SBOM to image — Feature-Flags
+        run: |
+          cosign attach sbom \
+            --sbom sbom-feature-flags.spdx.json \
+            ghcr.io/${{ github.repository }}/feature-flags@${{ steps.build-feature-flags.outputs.digest }}
+      - name: Scan SBOM for vulnerabilities — Feature-Flags
+        uses: anchore/scan-action@v3
+        with:
+          sbom: sbom-feature-flags.spdx.json
+          fail-build: false
+          severity-cutoff: critical
+      - name: Upload SBOM — Feature-Flags
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-feature-flags
+          path: sbom-feature-flags.spdx.json
+          retention-days: 90
+
+  build-sign-jobs:
+    name: Build, Sign & SBOM — Jobs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.2.4'
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Get current version
+        id: version
+        run: |
+          LATEST=$(git tag --sort=-v:refname | grep '^v' | head -1)
+          if [ -z "$LATEST" ]; then LATEST="v0.0.0"; fi
+          VERSION="${LATEST#v}"
+          if [ -z "$VERSION" ]; then VERSION="0.0.0"; fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+      - name: Build & Push — Jobs
+        id: build-jobs
+        uses: docker/build-push-action@v5
+        with:
+          context: services/jobs
+          file: services/jobs/Dockerfile.arm64
+          platforms: linux/arm64,linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/jobs:latest
+            ghcr.io/${{ github.repository }}/jobs:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository }}/jobs:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Sign image — Jobs
+        run: |
+          cosign sign --yes \
+            ghcr.io/${{ github.repository }}/jobs@${{ steps.build-jobs.outputs.digest }}
+      - name: Generate SBOM — Jobs
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/${{ github.repository }}/jobs@${{ steps.build-jobs.outputs.digest }}
+          format: spdx-json
+          output-file: sbom-jobs.spdx.json
+      - name: Attach SBOM to image — Jobs
+        run: |
+          cosign attach sbom \
+            --sbom sbom-jobs.spdx.json \
+            ghcr.io/${{ github.repository }}/jobs@${{ steps.build-jobs.outputs.digest }}
+      - name: Scan SBOM for vulnerabilities — Jobs
+        uses: anchore/scan-action@v3
+        with:
+          sbom: sbom-jobs.spdx.json
+          fail-build: false
+          severity-cutoff: critical
+      - name: Upload SBOM — Jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-jobs
+          path: sbom-jobs.spdx.json
+          retention-days: 90
+
+  build-sign-realtime:
+    name: Build, Sign & SBOM — Realtime
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.2.4'
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Get current version
+        id: version
+        run: |
+          LATEST=$(git tag --sort=-v:refname | grep '^v' | head -1)
+          if [ -z "$LATEST" ]; then LATEST="v0.0.0"; fi
+          VERSION="${LATEST#v}"
+          if [ -z "$VERSION" ]; then VERSION="0.0.0"; fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+      - name: Build & Push — Realtime
+        id: build-realtime
+        uses: docker/build-push-action@v5
+        with:
+          context: services/realtime
+          file: services/realtime/Dockerfile.arm64
+          platforms: linux/arm64,linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/realtime:latest
+            ghcr.io/${{ github.repository }}/realtime:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository }}/realtime:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Sign image — Realtime
+        run: |
+          cosign sign --yes \
+            ghcr.io/${{ github.repository }}/realtime@${{ steps.build-realtime.outputs.digest }}
+      - name: Generate SBOM — Realtime
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/${{ github.repository }}/realtime@${{ steps.build-realtime.outputs.digest }}
+          format: spdx-json
+          output-file: sbom-realtime.spdx.json
+      - name: Attach SBOM to image — Realtime
+        run: |
+          cosign attach sbom \
+            --sbom sbom-realtime.spdx.json \
+            ghcr.io/${{ github.repository }}/realtime@${{ steps.build-realtime.outputs.digest }}
+      - name: Scan SBOM for vulnerabilities — Realtime
+        uses: anchore/scan-action@v3
+        with:
+          sbom: sbom-realtime.spdx.json
+          fail-build: false
+          severity-cutoff: critical
+      - name: Upload SBOM — Realtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-realtime
+          path: sbom-realtime.spdx.json
+          retention-days: 90
+
+  build-sign-search:
+    name: Build, Sign & SBOM — Search
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.2.4'
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Get current version
+        id: version
+        run: |
+          LATEST=$(git tag --sort=-v:refname | grep '^v' | head -1)
+          if [ -z "$LATEST" ]; then LATEST="v0.0.0"; fi
+          VERSION="${LATEST#v}"
+          if [ -z "$VERSION" ]; then VERSION="0.0.0"; fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+      - name: Build & Push — Search
+        id: build-search
+        uses: docker/build-push-action@v5
+        with:
+          context: services/search
+          file: services/search/Dockerfile.arm64
+          platforms: linux/arm64,linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/search:latest
+            ghcr.io/${{ github.repository }}/search:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository }}/search:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Sign image — Search
+        run: |
+          cosign sign --yes \
+            ghcr.io/${{ github.repository }}/search@${{ steps.build-search.outputs.digest }}
+      - name: Generate SBOM — Search
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/${{ github.repository }}/search@${{ steps.build-search.outputs.digest }}
+          format: spdx-json
+          output-file: sbom-search.spdx.json
+      - name: Attach SBOM to image — Search
+        run: |
+          cosign attach sbom \
+            --sbom sbom-search.spdx.json \
+            ghcr.io/${{ github.repository }}/search@${{ steps.build-search.outputs.digest }}
+      - name: Scan SBOM for vulnerabilities — Search
+        uses: anchore/scan-action@v3
+        with:
+          sbom: sbom-search.spdx.json
+          fail-build: false
+          severity-cutoff: critical
+      - name: Upload SBOM — Search
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-search
+          path: sbom-search.spdx.json
+          retention-days: 90
+
+  build-sign-tenant-operator:
+    name: Build, Sign & SBOM — Tenant-Operator
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.2.4'
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Get current version
+        id: version
+        run: |
+          LATEST=$(git tag --sort=-v:refname | grep '^v' | head -1)
+          if [ -z "$LATEST" ]; then LATEST="v0.0.0"; fi
+          VERSION="${LATEST#v}"
+          if [ -z "$VERSION" ]; then VERSION="0.0.0"; fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+      - name: Build & Push — Tenant-Operator
+        id: build-tenant-operator
+        uses: docker/build-push-action@v5
+        with:
+          context: services/tenant-operator
+          file: services/tenant-operator/Dockerfile.arm64
+          platforms: linux/arm64,linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/tenant-operator:latest
+            ghcr.io/${{ github.repository }}/tenant-operator:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository }}/tenant-operator:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Sign image — Tenant-Operator
+        run: |
+          cosign sign --yes \
+            ghcr.io/${{ github.repository }}/tenant-operator@${{ steps.build-tenant-operator.outputs.digest }}
+      - name: Generate SBOM — Tenant-Operator
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/${{ github.repository }}/tenant-operator@${{ steps.build-tenant-operator.outputs.digest }}
+          format: spdx-json
+          output-file: sbom-tenant-operator.spdx.json
+      - name: Attach SBOM to image — Tenant-Operator
+        run: |
+          cosign attach sbom \
+            --sbom sbom-tenant-operator.spdx.json \
+            ghcr.io/${{ github.repository }}/tenant-operator@${{ steps.build-tenant-operator.outputs.digest }}
+      - name: Scan SBOM for vulnerabilities — Tenant-Operator
+        uses: anchore/scan-action@v3
+        with:
+          sbom: sbom-tenant-operator.spdx.json
+          fail-build: false
+          severity-cutoff: critical
+      - name: Upload SBOM — Tenant-Operator
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-tenant-operator
+          path: sbom-tenant-operator.spdx.json
+          retention-days: 90
+
+  build-sign-ml-engine:
+    name: Build, Sign & SBOM — ML-Engine
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.2.4'
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Get current version
+        id: version
+        run: |
+          LATEST=$(git tag --sort=-v:refname | grep '^v' | head -1)
+          if [ -z "$LATEST" ]; then LATEST="v0.0.0"; fi
+          VERSION="${LATEST#v}"
+          if [ -z "$VERSION" ]; then VERSION="0.0.0"; fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+      - name: Build & Push — ML-Engine
+        id: build-ml-engine
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: services/ml-engine/Dockerfile.arm64
+          platforms: linux/arm64,linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/ml-engine:latest
+            ghcr.io/${{ github.repository }}/ml-engine:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository }}/ml-engine:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Sign image — ML-Engine
+        run: |
+          cosign sign --yes \
+            ghcr.io/${{ github.repository }}/ml-engine@${{ steps.build-ml-engine.outputs.digest }}
+      - name: Generate SBOM — ML-Engine
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/${{ github.repository }}/ml-engine@${{ steps.build-ml-engine.outputs.digest }}
+          format: spdx-json
+          output-file: sbom-ml-engine.spdx.json
+      - name: Attach SBOM to image — ML-Engine
+        run: |
+          cosign attach sbom \
+            --sbom sbom-ml-engine.spdx.json \
+            ghcr.io/${{ github.repository }}/ml-engine@${{ steps.build-ml-engine.outputs.digest }}
+      - name: Scan SBOM for vulnerabilities — ML-Engine
+        uses: anchore/scan-action@v3
+        with:
+          sbom: sbom-ml-engine.spdx.json
+          fail-build: false
+          severity-cutoff: critical
+      - name: Upload SBOM — ML-Engine
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-ml-engine
+          path: sbom-ml-engine.spdx.json
           retention-days: 90
