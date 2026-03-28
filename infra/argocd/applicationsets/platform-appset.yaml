@@ -28,11 +28,6 @@ spec:
   generators:
     - list:
         elements:
-          # ── Core Data Pipeline ──────────────────────────────────────────
-          - service: ingestion
-            wave: "1"
-          - service: processing
-            wave: "1"
           # ── Auth & Security ─────────────────────────────────────────────
           - service: auth
             wave: "1"
