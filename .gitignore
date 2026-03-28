@@ -21,7 +21,6 @@ coverage.html
 # ── Rust ─────────────────────────────────────────────────
 /services/processing/target/
 **/*.rs.bk
-Cargo.lock
 
 # ── Python ───────────────────────────────────────────────
 __pycache__/
