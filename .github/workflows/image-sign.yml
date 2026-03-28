@@ -333,7 +333,7 @@ jobs:
         id: build-billing
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: services/billing
           file: services/billing/Dockerfile.arm64
           platforms: linux/arm64,linux/amd64
           push: true
@@ -421,7 +421,7 @@ jobs:
         id: build-notifications
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: services/billing
           file: services/notifications/Dockerfile.arm64
           platforms: linux/arm64,linux/amd64
           push: true
