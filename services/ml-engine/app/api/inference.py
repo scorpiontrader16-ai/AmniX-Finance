@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.config import get_settings
-from app.models.registry import ModelRegistry
+from app.models.registry import ModelRegistry, LoadedModel
 from app.features.store import FeatureStore
 
 logger = logging.getLogger(__name__)
@@ -210,7 +210,7 @@ async def get_features(
 # ── Inference Logic ───────────────────────────────────────────────────────
 
 def _run_inference(
-    loaded: "LoadedModel",
+    loaded: LoadedModel,
     features: Dict[str, Any],
 ) -> tuple[Dict[str, Any], Optional[float]]:
     """
@@ -237,7 +237,6 @@ def _run_inference(
         return _shape_output(loaded.model_type, pred, features), confidence
 
     elif framework == "onnx":
-        import onnxruntime as ort
         input_name = model.get_inputs()[0].name
         outputs = model.run(None, {input_name: X})
         pred = outputs[0][0]
