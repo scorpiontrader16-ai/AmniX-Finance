@@ -1,9 +1,16 @@
-FROM golang:1.24-alpine AS builder
-WORKDIR /app
-COPY . .
-RUN go mod download 2>/dev/null || true
-RUN CGO_ENABLED=0 GOARCH=arm64 go build -o /hydration ./...
-
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
+ARG TARGETOS=linux
+ARG TARGETARCH=arm64
+ARG BUILD_VERSION=dev
+WORKDIR /repo
+COPY go.mod go.sum ./
+COPY services/hydration/ ./services/hydration/
+WORKDIR /repo/services/hydration
+RUN go mod download && go mod verify
+RUN CGO_ENABLED=0 \
+    GOOS=${TARGETOS} \
+    GOARCH=${TARGETARCH} \
+    go build -o /hydration ./...
 FROM gcr.io/distroless/static:nonroot
 COPY --from=builder /hydration /hydration
 USER nonroot:nonroot

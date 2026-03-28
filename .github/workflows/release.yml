@@ -113,7 +113,7 @@ jobs:
       matrix:
         include:
           - service: ingestion
-            context: services/ingestion
+            context: .
             dockerfile: services/ingestion/Dockerfile.arm64
           - service: processing
             context: .
@@ -140,7 +140,7 @@ jobs:
             context: services/tenant-operator
             dockerfile: services/tenant-operator/Dockerfile.arm64
           - service: hydration
-            context: services/hydration
+            context: .
             dockerfile: services/hydration/Dockerfile.arm64
           - service: analytics
             context: services/analytics

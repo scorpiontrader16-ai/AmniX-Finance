@@ -71,7 +71,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           # Ingestion Dockerfile: لا يحتاج proto — context = services/ingestion
-          context: services/ingestion
+          context: .
           file: services/ingestion/Dockerfile.arm64
           platforms: linux/arm64,linux/amd64
           push: true
