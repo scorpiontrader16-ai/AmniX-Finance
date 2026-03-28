@@ -1,0 +1,168 @@
+# ============================================================
+# youtuop-1 — Core Services (Local Development)
+# ============================================================
+#
+# يُستخدم فوق docker-compose.yml (infra) وليس بديلاً عنه.
+#
+# الاستخدام:
+#   docker compose up -d                           # infra فقط
+#   docker compose -f docker-compose.yml \
+#                  -f docker-compose.services.yml up -d  # infra + services
+#
+# Services مستثناة عمداً:
+#   ml-engine       → يحتاج GPU + S3 models
+#   search          → يحتاج Elasticsearch (غير موجود في infra)
+#   realtime        → WebSocket — يشتغل standalone: cd services/realtime && go run ./cmd/server
+#   analytics       → يشتغل standalone: cd services/analytics && go run ./cmd/server
+#   control-plane   → يشتغل standalone: cd services/control-plane && go run ./cmd/server
+#   developer-portal→ يشتغل standalone: cd services/developer-portal && go run ./cmd/server
+#   jobs            → يشتغل standalone: cd services/jobs && go run ./cmd/server
+#   tenant-operator → Kubernetes CRD operator — لا يعمل خارج K8s
+#   hydration       → Kubernetes Job — لا يعمل خارج K8s
+#
+# ============================================================
+
+networks:
+  platform:
+    external: true   # يستخدم نفس network الـ infra
+
+services:
+
+  # ─────────────────────────────────────────────────────────
+  # Auth Service — Go
+  # HTTP: localhost:9092 | gRPC: localhost:8092
+  # ─────────────────────────────────────────────────────────
+  auth:
+    build:
+      context: ./services/auth
+      dockerfile: Dockerfile.arm64
+    container_name: auth
+    ports:
+      - "9092:9092"   # HTTP
+      - "8092:8092"   # gRPC
+    env_file:
+      - .env
+    environment:
+      HTTP_PORT: 9092
+      GRPC_PORT: 8092
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: platform
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: platform
+      REDIS_ADDR: redis:6379
+      OTEL_EXPORTER_OTLP_ENDPOINT: otel-collector:4317
+    depends_on:
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9092/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - platform
+
+  # ─────────────────────────────────────────────────────────
+  # Billing Service — Go
+  # HTTP: localhost:19093 (mapped من 9093 — يتعارض مع processing)
+  # ─────────────────────────────────────────────────────────
+  billing:
+    build:
+      context: ./services/billing
+      dockerfile: Dockerfile.arm64
+    container_name: billing
+    ports:
+      - "19093:9093"  # HTTP (19093 على الـ host — 9093 مأخوذة بـ processing)
+    env_file:
+      - .env
+    environment:
+      HTTP_PORT: 9093
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: platform
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: platform
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_test}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_placeholder}
+      OTEL_EXPORTER_OTLP_ENDPOINT: otel-collector:4317
+    depends_on:
+      - postgres
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9093/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - platform
+
+  # ─────────────────────────────────────────────────────────
+  # Notifications Service — Go
+  # HTTP: localhost:9094
+  # ─────────────────────────────────────────────────────────
+  notifications:
+    build:
+      context: ./services/notifications
+      dockerfile: Dockerfile.arm64
+    container_name: notifications
+    ports:
+      - "9094:9094"   # HTTP
+    env_file:
+      - .env
+    environment:
+      HTTP_PORT: 9094
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: platform
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: platform
+      REDIS_ADDR: redis:6379
+      RESEND_API_KEY: ${RESEND_API_KEY:-re_test_placeholder}
+      OTEL_EXPORTER_OTLP_ENDPOINT: otel-collector:4317
+    depends_on:
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9094/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - platform
+
+  # ─────────────────────────────────────────────────────────
+  # Feature Flags Service — Go
+  # HTTP: localhost:9096
+  # ─────────────────────────────────────────────────────────
+  feature-flags:
+    build:
+      context: ./services/feature-flags
+      dockerfile: Dockerfile.arm64
+    container_name: feature-flags
+    ports:
+      - "9096:9096"   # HTTP
+    env_file:
+      - .env
+    environment:
+      HTTP_PORT: 9096
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: platform
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: platform
+      REDIS_ADDR: redis:6379
+      OTEL_EXPORTER_OTLP_ENDPOINT: otel-collector:4317
+    depends_on:
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9096/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - platform

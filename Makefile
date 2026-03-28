@@ -180,3 +180,16 @@ db-migrate-all: ## Run ALL service migrations in dependency order
 	@$(MAKE) db-migrate-feature-flags
 	@$(MAKE) db-migrate-developer-portal
 	@echo "✅ All service migrations complete"
+
+# ─── Services Stack ───────────────────────────────────────────────
+.PHONY: dev-services dev-infra
+
+dev-infra: ## Start infrastructure only (Redpanda, Postgres, Redis, ClickHouse, MinIO, Grafana)
+	docker compose up -d
+	@echo "✅ Infrastructure ready"
+
+dev-services: ## Start infra + core services (auth, billing, notifications, feature-flags)
+	docker compose -f docker-compose.yml -f docker-compose.services.yml up -d
+	@$(MAKE) db-migrate-all
+	@$(MAKE) schema-register
+	@echo "✅ Infra + core services ready"

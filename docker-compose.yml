@@ -1,5 +1,6 @@
 # ============================================================
-# youtuop-1 — Full Local Development Stack
+# youtuop-1 — Infrastructure Stack (infra only)
+# للـ core services: docker-compose.services.yml
 # ============================================================
 # الاستخدام: make dev  أو  docker compose up -d
 # ============================================================
