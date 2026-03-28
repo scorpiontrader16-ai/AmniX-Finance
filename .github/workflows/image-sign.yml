@@ -245,7 +245,7 @@ jobs:
         id: build-auth
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: services/auth
           file: services/auth/Dockerfile.arm64
           platforms: linux/arm64,linux/amd64
           push: true
