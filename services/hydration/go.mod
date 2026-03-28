@@ -16,3 +16,4 @@ require (
 )
 
 replace github.com/aminpola2001-ctrl/youtuop => ../..
+toolchain go1.24.13

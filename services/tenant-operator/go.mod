@@ -1,6 +1,6 @@
 module github.com/aminpola2001-ctrl/youtuop/services/tenant-operator
 
-go 1.24
+go 1.24.0
 
 toolchain go1.24.13
 
