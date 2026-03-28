@@ -1169,3 +1169,80 @@ jobs:
           name: sbom-ml-engine
           path: sbom-ml-engine.spdx.json
           retention-days: 90
+
+  build-sign-hydration:
+    name: Build, Sign & SBOM — Hydration
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.2.4'
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Get current version
+        id: version
+        run: |
+          LATEST=$(git tag --sort=-v:refname | grep '^v' | head -1)
+          if [ -z "$LATEST" ]; then LATEST="v0.0.0"; fi
+          VERSION="${LATEST#v}"
+          if [ -z "$VERSION" ]; then VERSION="0.0.0"; fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+      - name: Build & Push — Hydration
+        id: build-hydration
+        uses: docker/build-push-action@v5
+        with:
+          context: services/hydration
+          file: services/hydration/Dockerfile.arm64
+          platforms: linux/arm64,linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/hydration:latest
+            ghcr.io/${{ github.repository }}/hydration:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository }}/hydration:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Sign image — Hydration
+        run: |
+          cosign sign --yes \
+            ghcr.io/${{ github.repository }}/hydration@${{ steps.build-hydration.outputs.digest }}
+      - name: Generate SBOM — Hydration
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/${{ github.repository }}/hydration@${{ steps.build-hydration.outputs.digest }}
+          format: spdx-json
+          output-file: sbom-hydration.spdx.json
+      - name: Attach SBOM to image — Hydration
+        run: |
+          cosign attach sbom \
+            --sbom sbom-hydration.spdx.json \
+            ghcr.io/${{ github.repository }}/hydration@${{ steps.build-hydration.outputs.digest }}
+      - name: Scan SBOM for vulnerabilities — Hydration
+        uses: anchore/scan-action@v3
+        with:
+          sbom: sbom-hydration.spdx.json
+          fail-build: false
+          severity-cutoff: critical
+      - name: Upload SBOM — Hydration
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-hydration
+          path: sbom-hydration.spdx.json
+          retention-days: 90
