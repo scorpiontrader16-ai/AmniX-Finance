@@ -742,7 +742,7 @@ jobs:
           CGO_ENABLED=0 go build \
             -ldflags="-s -w -X main.version=ci" \
             -trimpath \
-            ./cmd/main.go
+            ./cmd/server
       - name: Vet
         working-directory: services/tenant-operator
         run: go vet ./...
