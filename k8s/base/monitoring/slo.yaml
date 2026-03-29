@@ -400,3 +400,277 @@ spec:
         - record: slo:search:error_budget_remaining
           expr: |
             1 - ((1 - slo:search:availability30d) / 0.005)
+
+    # ── Billing Service SLO ────────────────────────────────
+    # Target: 99.95% availability — payment critical path
+    - name: slo.billing.availability
+      interval: 30s
+      rules:
+
+        - record: slo:billing:error_rate5m
+          expr: |
+            sum(rate(billing_webhook_processed_total{status=~"5.."}[5m]))
+            /
+            sum(rate(billing_webhook_processed_total[5m]))
+
+        - record: slo:billing:availability30d
+          expr: |
+            1 - (
+              sum(increase(billing_webhook_processed_total{status=~"5.."}[30d]))
+              /
+              sum(increase(billing_webhook_processed_total[30d]))
+            )
+
+        - alert: BillingSLOFastBurn
+          expr: |
+            slo:billing:error_rate5m > (14.4 * 0.0005)
+          for: 5m
+          labels:
+            severity: critical
+            slo: billing-availability
+          annotations:
+            summary: "Billing SLO fast burn — payment processing at risk"
+            description: >
+              Billing webhook error rate {{ $value | humanizePercentage }} is 14.4x the SLO budget.
+              Monthly error budget will be exhausted in ~1 hour.
+
+        - alert: BillingSLOSlowBurn
+          expr: |
+            (
+              sum(rate(billing_webhook_processed_total{status=~"5.."}[6h]))
+              /
+              sum(rate(billing_webhook_processed_total[6h]))
+            ) > (6 * 0.0005)
+          for: 30m
+          labels:
+            severity: warning
+            slo: billing-availability
+          annotations:
+            summary: "Billing SLO slow burn — budget being consumed"
+            description: >
+              Billing error rate over 6h is 6x the SLO budget.
+
+    # ── Billing Latency SLO ────────────────────────────────
+    # Target: P99 < 500ms
+    - name: slo.billing.latency
+      interval: 30s
+      rules:
+
+        - record: slo:billing:latency_p99_5m
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(billing_http_request_duration_seconds_bucket[5m])) by (le)
+            )
+
+        - alert: BillingLatencySLOBreach
+          expr: |
+            slo:billing:latency_p99_5m > 0.5
+          for: 10m
+          labels:
+            severity: warning
+            slo: billing-latency
+          annotations:
+            summary: "Billing P99 latency SLO breach"
+            description: "Billing P99 latency is {{ $value }}s — SLO target is < 500ms."
+
+    # ── Notifications Service SLO ──────────────────────────
+    # Target: 99.5% availability, email delivery rate > 99%
+    - name: slo.notifications.availability
+      interval: 30s
+      rules:
+
+        - record: slo:notifications:latency_p99_5m
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(notifications_http_request_duration_seconds_bucket[5m])) by (le)
+            )
+
+        - record: slo:notifications:email_rate1h
+          expr: |
+            sum(increase(notifications_emails_sent_total[1h]))
+
+        - alert: NotificationsLatencySLOBreach
+          expr: |
+            slo:notifications:latency_p99_5m > 1.0
+          for: 10m
+          labels:
+            severity: warning
+            slo: notifications-latency
+          annotations:
+            summary: "Notifications P99 latency SLO breach"
+            description: "Notifications P99 latency is {{ $value }}s — target < 1s."
+
+        - alert: NotificationsEmailDeliveryDrop
+          expr: |
+            sum(rate(notifications_emails_sent_total[5m])) == 0
+          for: 15m
+          labels:
+            severity: critical
+            slo: notifications-availability
+          annotations:
+            summary: "Notifications email delivery stopped"
+            description: "No emails sent in the last 15 minutes."
+
+    # ── Jobs Service SLO ───────────────────────────────────
+    # Target: 99% job processing success rate
+    - name: slo.jobs.availability
+      interval: 30s
+      rules:
+
+        - record: slo:jobs:error_rate5m
+          expr: |
+            sum(rate(jobs_http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(jobs_http_requests_total[5m]))
+
+        - record: slo:jobs:latency_p99_5m
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(jobs_http_request_duration_seconds_bucket[5m])) by (le)
+            )
+
+        - alert: JobsSLOFastBurn
+          expr: |
+            slo:jobs:error_rate5m > (14.4 * 0.01)
+          for: 5m
+          labels:
+            severity: warning
+            slo: jobs-availability
+          annotations:
+            summary: "Jobs SLO fast burn"
+            description: >
+              Jobs error rate {{ $value | humanizePercentage }} is 14.4x the SLO budget.
+
+        - alert: JobsQueueBacklog
+          expr: |
+            sum(rate(jobs_asynq_processed_total[5m])) == 0
+          for: 10m
+          labels:
+            severity: warning
+            slo: jobs-throughput
+          annotations:
+            summary: "Jobs queue processing stalled"
+            description: "No asynq jobs processed in the last 10 minutes."
+
+    # ── Feature Flags Service SLO ──────────────────────────
+    # Target: 99.9% availability — affects all services
+    - name: slo.feature-flags.availability
+      interval: 30s
+      rules:
+
+        - record: slo:feature_flags:latency_p99_5m
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(feature_flags_http_request_duration_seconds_bucket[5m])) by (le)
+            )
+
+        - record: slo:feature_flags:evaluation_rate1m
+          expr: |
+            sum(rate(feature_flags_evaluations_total[1m]))
+
+        - alert: FeatureFlagsLatencySLOBreach
+          expr: |
+            slo:feature_flags:latency_p99_5m > 0.05
+          for: 5m
+          labels:
+            severity: critical
+            slo: feature-flags-latency
+          annotations:
+            summary: "Feature Flags P99 latency SLO breach"
+            description: >
+              Feature Flags P99 latency is {{ $value }}s — target < 50ms.
+              All services depending on feature flags are affected.
+
+        - alert: FeatureFlagsEvaluationsDrop
+          expr: |
+            sum(rate(feature_flags_evaluations_total[5m])) == 0
+          for: 5m
+          labels:
+            severity: critical
+            slo: feature-flags-availability
+          annotations:
+            summary: "Feature Flags evaluations stopped"
+            description: "No feature flag evaluations in 5 minutes — service may be down."
+
+    # ── Developer Portal SLO ───────────────────────────────
+    # Target: 99.5% availability
+    - name: slo.developer-portal.availability
+      interval: 30s
+      rules:
+
+        - record: slo:developer_portal:latency_p99_5m
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(developer_portal_http_request_duration_seconds_bucket[5m])) by (le)
+            )
+
+        - record: slo:developer_portal:webhook_error_rate5m
+          expr: |
+            sum(rate(developer_portal_webhook_deliveries_total{status=~"5.."}[5m]))
+            /
+            sum(rate(developer_portal_webhook_deliveries_total[5m]))
+
+        - alert: DeveloperPortalLatencySLOBreach
+          expr: |
+            slo:developer_portal:latency_p99_5m > 1.0
+          for: 10m
+          labels:
+            severity: warning
+            slo: developer-portal-latency
+          annotations:
+            summary: "Developer Portal P99 latency SLO breach"
+            description: "Developer Portal P99 latency is {{ $value }}s — target < 1s."
+
+        - alert: DeveloperPortalWebhookFailures
+          expr: |
+            slo:developer_portal:webhook_error_rate5m > 0.05
+          for: 10m
+          labels:
+            severity: warning
+            slo: developer-portal-webhooks
+          annotations:
+            summary: "Developer Portal webhook delivery failure rate > 5%"
+            description: "Webhook error rate is {{ $value | humanizePercentage }}."
+
+    # ── Control Plane SLO ──────────────────────────────────
+    # Target: 99.9% uptime — measured via up metric only
+    # No custom metrics defined in source — uses Prometheus scrape health
+    - name: slo.control-plane.availability
+      interval: 30s
+      rules:
+
+        - record: slo:control_plane:availability1h
+          expr: |
+            avg_over_time(up{job="control-plane"}[1h])
+
+        - alert: ControlPlaneSLOBreach
+          expr: |
+            avg_over_time(up{job="control-plane"}[1h]) < 0.999
+          for: 5m
+          labels:
+            severity: critical
+            slo: control-plane-availability
+          annotations:
+            summary: "Control Plane SLO breach — availability < 99.9%"
+            description: "Control Plane availability over 1h is {{ $value | humanizePercentage }}."
+
+    # ── SLO Dashboard — Billing & Operations Records ───────
+    - name: slo.dashboard.operations
+      interval: 60s
+      rules:
+
+        - record: slo:billing:error_budget_remaining
+          expr: |
+            1 - ((1 - slo:billing:availability30d) / 0.0005)
+
+        - record: slo:notifications:emails_sent_24h
+          expr: |
+            sum(increase(notifications_emails_sent_total[24h]))
+
+        - record: slo:jobs:asynq_processed_24h
+          expr: |
+            sum(increase(jobs_asynq_processed_total[24h]))
+
+        - record: slo:feature_flags:evaluations_24h
+          expr: |
+            sum(increase(feature_flags_evaluations_total[24h]))
