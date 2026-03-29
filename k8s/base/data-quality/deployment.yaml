@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-quality
+  namespace: platform
+  labels:
+    app.kubernetes.io/name: data-quality
+    app.kubernetes.io/component: data-quality
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: youtuop-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: data-quality
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: data-quality
+        app.kubernetes.io/component: data-quality
+        app.kubernetes.io/part-of: youtuop-platform
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9101"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: data-quality
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: data-quality
+          image: ghcr.io/placeholder/data-quality:latest
+          ports:
+            - containerPort: 9101
+              name: http
+              protocol: TCP
+          env:
+            - name: POSTGRES_HOST
+              value: "postgres.platform.svc.cluster.local"
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: data-quality-secrets
+                  key: db_name
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: data-quality-secrets
+                  key: db_user
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: data-quality-secrets
+                  key: db_password
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9101
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 9101
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: contracts
+              mountPath: /app/contracts
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: contracts
+          configMap:
+            name: data-quality-contracts

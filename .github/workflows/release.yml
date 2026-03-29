@@ -157,6 +157,9 @@ jobs:
           - service: ml-engine
             context: services/ml-engine
             dockerfile: services/ml-engine/Dockerfile
+          - service: data-quality
+            context: services/data-quality
+            dockerfile: services/data-quality/Dockerfile
     steps:
       - uses: actions/checkout@v4
         with:

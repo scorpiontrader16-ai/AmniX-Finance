@@ -1,0 +1,40 @@
+# Contract: Market Data Source
+# الغرض: ضمان جودة بيانات الأسعار قبل أي معالجة
+dataset: market_prices
+datasource: platform-postgres
+
+checks:
+  # إلزامية: مفيش null في الحقول الأساسية
+  - missing_count(ticker) = 0:
+      name: "Ticker must not be null"
+      fail: when > 0
+
+  - missing_count(price) = 0:
+      name: "Price must not be null"
+      fail: when > 0
+
+  # مدى منطقي للأسعار
+  - min(price) > 0:
+      name: "Prices must be positive"
+  - max(price) < 1000000:
+      name: "Prices should be realistic (< 1M)"
+      warn: when > 0
+
+  # freshness: البيانات مش أقدم من 15 دقيقة
+  - freshness(ingested_at) < 15m:
+      name: "Data freshness check"
+      fail: when > 1h
+      warn: when > 15m
+
+  # تكرار: مفيش نفس الـ (ticker, timestamp) مرتين
+  - duplicate_count(ticker, timestamp) = 0:
+      name: "No duplicate price entries"
+
+  # حجم: عدد الـ rows معقول
+  - row_count between 1000 and 100000:
+      name: "Expected row count range for hourly batch"
+      warn: when not between 100 and 1000000
+
+  # Distribution check
+  - avg(price) between 1 and 100000:
+      name: "Average price sanity check"

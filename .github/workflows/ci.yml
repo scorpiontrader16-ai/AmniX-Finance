@@ -887,6 +887,26 @@ jobs:
             --ignore-unfixed \
             services/ml-engine
 
+
+  trivy-data-quality:
+    name: Trivy — Data Quality Service
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin
+      - name: Run Trivy on data-quality
+        run: |
+          trivy fs \
+            --severity CRITICAL,HIGH \
+            --exit-code 1 \
+            --ignore-unfixed \
+            services/data-quality
+
   build-hydration:
     name: Go — Hydration Service
     runs-on: ubuntu-latest
@@ -934,6 +954,29 @@ jobs:
           pip install -r requirements.txt
       - name: Lint with ruff
         working-directory: services/ml-engine
+        run: |
+          pip install ruff
+          ruff check app/
+
+
+  build-data-quality:
+    name: Python — Data Quality Service
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        working-directory: services/data-quality
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Lint with ruff
+        working-directory: services/data-quality
         run: |
           pip install ruff
           ruff check app/

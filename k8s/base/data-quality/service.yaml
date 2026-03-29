@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-quality
+  namespace: platform
+  labels:
+    app.kubernetes.io/name: data-quality
+    app.kubernetes.io/component: data-quality
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: youtuop-platform
+spec:
+  selector:
+    app.kubernetes.io/name: data-quality
+  ports:
+    - name: http
+      port: 9101
+      targetPort: 9101
+      protocol: TCP
