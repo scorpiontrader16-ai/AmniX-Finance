@@ -184,6 +184,12 @@ spec:
             - name: datasources
               mountPath: /etc/grafana/provisioning/datasources
               readOnly: true
+            - name: dashboard-provisioning
+              mountPath: /etc/grafana/provisioning/dashboards
+              readOnly: true
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards/youtuop
+              readOnly: true
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -191,6 +197,18 @@ spec:
         - name: datasources
           configMap:
             name: grafana-datasources
+        - name: dashboard-provisioning
+          configMap:
+            name: grafana-dashboards-provisioning
+        - name: dashboards
+          projected:
+            sources:
+              - configMap:
+                  name: grafana-dashboard-ingestion
+              - configMap:
+                  name: grafana-dashboard-processing
+              - configMap:
+                  name: grafana-dashboard-slo
 ---
 apiVersion: v1
 kind: Service
