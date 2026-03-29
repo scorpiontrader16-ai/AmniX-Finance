@@ -20,6 +20,23 @@ spec:
     metadata:
       labels:
         app: ingestion
+      annotations:
+        # ── Vault Agent Injector ──────────────────────────────────────────
+        # لماذا: dynamic DB credentials بدلاً من static secrets
+        # TTL 1h مع auto-renew — لا rotation يدوي
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "ingestion-role"
+        vault.hashicorp.com/agent-inject-secret-db: "database/creds/ingestion-role"
+        vault.hashicorp.com/agent-inject-template-db: |
+          {{- with secret "database/creds/ingestion-role" -}}
+          POSTGRES_USER="{{ .Data.username }}"
+          POSTGRES_PASSWORD="{{ .Data.password }}"
+          POSTGRES_HOST="pgbouncer.platform.svc.cluster.local"
+          POSTGRES_PORT="6432"
+          POSTGRES_DB="platform"
+          {{- end }}
+        vault.hashicorp.com/agent-pre-populate-only: "false"
+        vault.hashicorp.com/secret-volume-path: "/vault/secrets"
     spec:
       serviceAccountName: ingestion
       nodeSelector:
@@ -63,6 +80,11 @@ spec:
         - name: tls
           secret:
             secretName: ingestion-tls-secret
+        # ── Vault secrets volume ──
+        # لماذا Memory: أسرع وأكثر أمناً من disk — credentials لا تُكتب على القرص
+        - name: vault-secrets
+          emptyDir:
+            medium: Memory
       containers:
         - name: ingestion
           image: ghcr.io/scorpiontrader16-ai/youtuop-1/ingestion:1.0.0
@@ -96,6 +118,11 @@ spec:
             # ── ✏️ مُضاف: TLS mount ──
             - name: tls
               mountPath: /etc/tls
+              readOnly: true
+            # ── Vault secrets mount ──
+            # لماذا: Vault Agent sidecar يكتب هنا — readOnly للـ app container
+            - name: vault-secrets
+              mountPath: /vault/secrets
               readOnly: true
           resources:
             requests:

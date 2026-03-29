@@ -40,6 +40,7 @@ import (
 	chwriter "github.com/scorpiontrader16-ai/youtuop-1/services/ingestion/internal/clickhouse"
 	"github.com/scorpiontrader16-ai/youtuop-1/services/ingestion/internal/coldstore"
 	kafkapkg "github.com/scorpiontrader16-ai/youtuop-1/services/ingestion/internal/kafka"
+	"github.com/scorpiontrader16-ai/youtuop-1/services/ingestion/internal/config"
 	"github.com/scorpiontrader16-ai/youtuop-1/services/ingestion/internal/postgres"
 	"github.com/scorpiontrader16-ai/youtuop-1/services/ingestion/internal/tiering"
 )
@@ -173,6 +174,11 @@ func main() {
 	}
 
 	// ── Postgres (Warm) ───────────────────────────────────────────────────
+	// لماذا هنا: يجب تحميل Vault secrets قبل ConfigFromEnv()
+	// حتى تتغلب dynamic credentials على أي static env vars
+	if err := config.LoadVaultSecrets(config.DefaultVaultSecretsPath); err != nil {
+		log.Warn("vault secrets not loaded — falling back to env vars", zap.Error(err))
+	}
 	pgClient, err := postgres.WaitForPostgres(startupCtx, postgres.ConfigFromEnv(), slogLogger)
 	if err != nil {
 		log.Warn("postgres unavailable — warm store disabled", zap.Error(err))
