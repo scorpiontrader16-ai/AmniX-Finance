@@ -1,0 +1,17 @@
+# ============================================================
+# .gitleaks.toml — Gitleaks configuration
+# youtuop-1 Platform
+# ============================================================
+
+title = "youtuop gitleaks config"
+
+[allowlist]
+  description = "Global allowlist"
+  # Prometheus recording rule expressions in Grafana dashboard ConfigMaps
+  # Pattern: slo:service:metric_name — not secrets
+  regexes = [
+    '''slo:[a-z_]+:[a-z_]+ \* \d+''',
+  ]
+  paths = [
+    '''k8s/base/monitoring/dashboards-configmap\.yaml''',
+  ]
