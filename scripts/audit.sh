@@ -156,6 +156,141 @@ LARGE=$(git ls-files | xargs -I{} find {} -size +1M 2>/dev/null | sort)
 if [ -z "$LARGE" ]; then pass "No large files tracked in git"
 else fail "Large files tracked in git:"; echo "$LARGE" >> "$REPORT"; fi
 
+
+set +e  # الـ sections 11-19 تستخدم || true — نوقف exit-on-error
+section "11. Kustomization Orphan Files"
+ORPHAN_COUNT=0
+for dir in k8s/base/*/; do
+  kust="$dir/kustomization.yaml"
+  [ -f "$kust" ] || continue
+  for yaml_file in "$dir"*.yaml; do
+    fname=$(basename "$yaml_file")
+    [ "$fname" = "kustomization.yaml" ] && continue
+    if ! grep -q "$fname" "$kust"; then
+      fail "ORPHAN (not in kustomization): $yaml_file"
+      ORPHAN_COUNT=$((ORPHAN_COUNT+1))
+    fi
+  done
+done
+[ "$ORPHAN_COUNT" -eq 0 ] && pass "No orphan yaml files in k8s/base"
+
+section "12. Overlays Completeness"
+for svc in services/*/; do
+  name=$(basename "$svc")
+  staging="k8s/overlays/staging/$name/kustomization.yaml"
+  production="k8s/overlays/production/$name/kustomization.yaml"
+  [ -f "$staging" ]    || fail "Missing overlay staging: $name"
+  [ -f "$production" ] || fail "Missing overlay production: $name"
+  [ -f "$staging" ] && [ -f "$production" ] && pass "Overlays OK: $name"
+done
+
+section "13. Service Completeness — ESO / PDB / HPA"
+for svc in services/*/; do
+  name=$(basename "$svc")
+  base="k8s/base/$name"
+  [ -d "$base" ] || continue
+  eso=$(find "$base" -maxdepth 1 -name "externalsecret*.yaml" 2>/dev/null | wc -l)
+  pdb=$(find "$base" -maxdepth 1 -name "pdb*.yaml" -o -name "poddisruptionbudget*.yaml" 2>/dev/null | wc -l)
+  hpa=$(find "$base" -maxdepth 1 -name "hpa*.yaml" -o -name "scaledobject*.yaml" 2>/dev/null | wc -l)
+  [ "$eso" -eq 0 ] && fail "Missing ExternalSecret: $name"
+  [ "$pdb" -eq 0 ] && fail "Missing PodDisruptionBudget: $name"
+  [ "$hpa" -eq 0 ] && fail "Missing HPA/ScaledObject: $name"
+  [ "$eso" -gt 0 ] && [ "$pdb" -gt 0 ] && [ "$hpa" -gt 0 ] && pass "ESO+PDB+HPA OK: $name"
+done
+
+section "14. ArgoCD Applications"
+ARGOCD_APPS=$(find k8s/ infra/ -name "*.yaml" 2>/dev/null \
+  | xargs grep -l "kind: Application" 2>/dev/null | wc -l)
+ARGOCD_APPSETS=$(find k8s/ infra/ -name "*.yaml" 2>/dev/null \
+  | xargs grep -l "kind: ApplicationSet" 2>/dev/null | wc -l)
+if [ "$ARGOCD_APPS" -gt 0 ] || [ "$ARGOCD_APPSETS" -gt 0 ]; then
+  pass "ArgoCD Applications found: apps=$ARGOCD_APPS appsets=$ARGOCD_APPSETS"
+else
+  fail "No ArgoCD Application or ApplicationSet found — cluster will not sync"
+fi
+
+section "15. CI/CD Coverage — Build + Trivy"
+CI_FILE=".github/workflows/ci.yml"
+for svc in services/*/; do
+  name=$(basename "$svc")
+  [ -f "$svc/go.mod" ] || continue
+  if grep -q "build-$name\|working-directory: services/$name" "$CI_FILE" 2>/dev/null; then
+    pass "CI build job exists: $name"
+  else
+    fail "Missing CI build job: $name"
+  fi
+done
+for svc in services/*/; do
+  name=$(basename "$svc")
+  if grep -q "trivy-$name" "$CI_FILE" 2>/dev/null; then
+    pass "Trivy scan exists: $name"
+  else
+    fail "Missing Trivy scan in CI: $name"
+  fi
+done
+
+section "16. IRSA Annotations — AWS Readiness"
+IRSA_MISSING=0
+for svc in services/*/; do
+  name=$(basename "$svc")
+  sa="k8s/base/$name/serviceaccount.yaml"
+  [ -f "$sa" ] || continue
+  if grep -q "eks.amazonaws.com/role-arn\|eks.amazonaws" "$sa" 2>/dev/null; then
+    pass "IRSA annotation present: $name"
+  else
+    warn "IRSA annotation missing (required for AWS): $name"
+    IRSA_MISSING=$((IRSA_MISSING+1))
+  fi
+done
+[ "$IRSA_MISSING" -gt 0 ] && warn "Total services missing IRSA: $IRSA_MISSING"
+
+section "17. Terraform"
+if [ -d "terraform/" ]; then
+  TF_FILES=$(find terraform/ -name "*.tf" | wc -l)
+  [ "$TF_FILES" -gt 0 ] && pass "Terraform files found: $TF_FILES" \
+    || fail "terraform/ exists but contains no .tf files"
+  for env in terraform/environments/*/; do
+    [ -d "$env" ] || continue
+    ename=$(basename "$env")
+    [ -f "$env/main.tf" ]          || fail "Missing $ename/main.tf"
+    [ -f "$env/variables.tf" ]     || fail "Missing $ename/variables.tf"
+    [ -f "$env/terraform.tfvars" ] || fail "Missing $ename/terraform.tfvars"
+    [ -f "$env/backend.tf" ]       || fail "Missing $ename/backend.tf"
+    [ -f "$env/main.tf" ] && [ -f "$env/variables.tf" ] && \
+    [ -f "$env/terraform.tfvars" ] && [ -f "$env/backend.tf" ] && \
+      pass "Terraform environment complete: $ename"
+  done
+else
+  fail "terraform/ not found — AWS deployment impossible"
+fi
+
+section "18. Cargo.lock"
+find services/ -name "Cargo.toml" | while read -r f; do
+  dir=$(dirname "$f")
+  name=$(basename "$dir")
+  if grep -q "^\[package\]" "$f" 2>/dev/null; then
+    [ -f "$dir/Cargo.lock" ] \
+      && pass "Cargo.lock present: $name" \
+      || fail "Cargo.lock missing: $name"
+  fi
+done
+
+section "19. Kustomization Header Accuracy"
+for kust in k8s/base/*/kustomization.yaml; do
+  dir=$(dirname "$kust")
+  name=$(basename "$dir")
+  if grep -q "المسار الكامل" "$kust"; then
+    declared=$(grep "المسار الكامل" "$kust" \
+      | grep -o "k8s/base/[^/]*/kustomization.yaml" | head -1)
+    if [ -n "$declared" ] && [ "$declared" != "k8s/base/$name/kustomization.yaml" ]; then
+      fail "Wrong header in $name/kustomization.yaml — declares $declared"
+    else
+      pass "Header accurate: $name"
+    fi
+  fi
+done
+
+set -e
 section "Summary"
 TOTAL=$((PASS+FAIL+WARN))
 echo "| Status | Count |" >> "$REPORT"
