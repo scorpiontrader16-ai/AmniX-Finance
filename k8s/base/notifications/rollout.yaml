@@ -15,6 +15,10 @@ spec:
     metadata:
       labels:
         app: notifications
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9094"
+        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: notifications
       nodeSelector:

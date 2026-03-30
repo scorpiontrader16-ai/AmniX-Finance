@@ -16,6 +16,10 @@ spec:
     metadata:
       labels:
         app: hydration
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9092"
+        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: hydration
       nodeSelector:

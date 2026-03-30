@@ -20,6 +20,10 @@ spec:
     metadata:
       labels:
         app: auth
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9092"
+        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: auth
       nodeSelector:

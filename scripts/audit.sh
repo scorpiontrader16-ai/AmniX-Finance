@@ -846,15 +846,19 @@ find services -path "*/migrations/*.sql" 2>/dev/null | sort | while read -r f; d
 done
 
 # تحقق من عدم تكرار أرقام الـ migration
-ALL_NUMS=$(find services -path "*/migrations/*.sql" 2>/dev/null \
-  | awk -F/ '{print $NF}' | grep -oE '^[0-9]+' | sort)
-DUP_NUMS=$(echo "$ALL_NUMS" | uniq -d)
-if [ -z "$DUP_NUMS" ]; then
-  pass "No duplicate migration numbers"
-else
-  fail "Duplicate migration numbers found:"
-  echo "$DUP_NUMS" >> "$REPORT"
-fi
+# تحقق per-service — الأرقام مشتركة عبر الـ services بشكل مقصود
+MIG_DUP_FOUND=0
+for svc_dir in services/*/internal/postgres/migrations; do
+  [ -d "$svc_dir" ] || continue
+  svc_name=$(echo "$svc_dir" | cut -d/ -f2)
+  SVC_NUMS=$(ls "$svc_dir"/*.sql 2>/dev/null | awk -F/ '{print $NF}' | grep -oE '^[0-9]+' | sort)
+  SVC_DUPS=$(echo "$SVC_NUMS" | uniq -d)
+  if [ -n "$SVC_DUPS" ]; then
+    fail "Duplicate migration numbers in $svc_name: $SVC_DUPS"
+    MIG_DUP_FOUND=$((MIG_DUP_FOUND+1))
+  fi
+done
+[ "$MIG_DUP_FOUND" -eq 0 ] && pass "No duplicate migration numbers (per-service check)"
 
 # ══════════════════════════════════════════════════════════════════
 # 38. Git Hygiene — No Secrets or Binaries Tracked

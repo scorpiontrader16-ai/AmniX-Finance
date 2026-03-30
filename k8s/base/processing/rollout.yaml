@@ -20,6 +20,10 @@ spec:
     metadata:
       labels:
         app: processing
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: processing
       nodeSelector:

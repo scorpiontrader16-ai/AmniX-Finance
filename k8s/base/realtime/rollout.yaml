@@ -15,6 +15,10 @@ spec:
     metadata:
       labels:
         app: realtime
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9099"
+        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: realtime
       nodeSelector:

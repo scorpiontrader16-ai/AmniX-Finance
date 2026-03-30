@@ -94,3 +94,7 @@ services/tenant-operator/server
 
 # ── Generated audit reports ───────────────────────────────
 audit-report.md
+# ── Vault local init output ───────────────────────────────
+vault-init.json
+# ── Log files ─────────────────────────────────────────────
+*.log

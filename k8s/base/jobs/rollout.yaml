@@ -15,6 +15,10 @@ spec:
     metadata:
       labels:
         app: jobs
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9097"
+        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: jobs
       nodeSelector:

@@ -15,6 +15,10 @@ spec:
     metadata:
       labels:
         app: ml-engine
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9098"
+        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: ml-engine
       nodeSelector:

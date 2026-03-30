@@ -15,6 +15,10 @@ spec:
     metadata:
       labels:
         app: feature-flags
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9096"
+        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: feature-flags
       nodeSelector:

@@ -11,6 +11,7 @@ spec:
       app: hydration
   policyTypes:
     - Ingress
+    - Egress
   ingress:
     - from:
         - namespaceSelector:
@@ -30,3 +31,15 @@ spec:
       ports:
         - port: 9092
           protocol: TCP
+  egress:
+    # DNS resolution (CoreDNS)
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # outbound to platform namespace only
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: platform
