@@ -98,3 +98,5 @@ audit-report.md
 vault-init.json
 # ── Log files ─────────────────────────────────────────────
 *.log
+audit-results.txt
+*.bak
