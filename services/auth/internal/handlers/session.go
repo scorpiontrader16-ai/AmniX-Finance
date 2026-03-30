@@ -4,7 +4,6 @@ import (
     "encoding/json"
     "net/http"
 
-    "github.com/gorilla/mux"
     "go.uber.org/zap"
 
     "github.com/scorpiontrader16-ai/youtuop-1/services/auth/internal/postgres"
@@ -36,7 +35,7 @@ func (h *SessionHandler) List(w http.ResponseWriter, r *http.Request) {
 func (h *SessionHandler) Revoke(w http.ResponseWriter, r *http.Request) {
     userID := r.Context().Value("user_id").(string)
     tenantID := r.Context().Value("tenant_id").(string)
-    sessionID := mux.Vars(r)["session_id"]
+    sessionID := r.PathValue("session_id")
 
     if err := h.db.RevokeSession(r.Context(), sessionID, userID, tenantID); err != nil {
         http.Error(w, "failed to revoke", http.StatusInternalServerError)
