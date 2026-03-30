@@ -27,7 +27,11 @@ type Config struct {
 }
 
 func ConfigFromEnv() Config {
-	port, _ := strconv.Atoi(getEnv("POSTGRES_PORT", "5432"))
+	port, err := strconv.Atoi(getEnv("POSTGRES_PORT", "5432"))
+	if err != nil {
+		slog.Warn("POSTGRES_PORT is not a valid integer, using default 5432", "value", getEnv("POSTGRES_PORT", "5432"))
+		port = 5432
+	}
 	return Config{
 		Host:     getEnv("POSTGRES_HOST", "postgres.platform.svc.cluster.local"),
 		Port:     port,
@@ -210,7 +214,8 @@ func (c *Client) AssignRole(ctx context.Context, userID, tenantID, role string) 
 // ── GetPermissions: satisfies rbac.DB interface exactly ──────────────────
 //
 // Signature MUST match rbac.DB:
-//   GetPermissions(ctx context.Context, userID, tenantID string) ([]string, error)
+//
+//	GetPermissions(ctx context.Context, userID, tenantID string) ([]string, error)
 //
 // This method returns ONLY the role-based permissions for the user.
 // Plan-level permissions (markets:stream, analytics:export, etc.) are merged
