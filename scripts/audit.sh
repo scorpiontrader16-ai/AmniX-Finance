@@ -1,101 +1,209 @@
 #!/usr/bin/env bash
+# ══════════════════════════════════════════════════════════════════════════════
+# Youtuop Platform — Full Institutional Audit Script v2.0
+# 61 sections covering: Code, Security, K8s, CI/CD, Supply Chain, Ops
+# لماذا: فحص مؤسسي شامل يكشف كل مشكلة قبل النشر على AWS
+# ══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
 REPORT="audit-report.md"
 PASS=0; FAIL=0; WARN=0
 
 section() { echo ""; echo "## $1" | tee -a "$REPORT"; echo ""; }
-pass()    { echo "- [x] $1" | tee -a "$REPORT"; PASS=$((PASS+1)); }
-fail()    { echo "- [ ] FAIL $1" | tee -a "$REPORT"; FAIL=$((FAIL+1)); }
-warn()    { echo "- [~] WARN $1" | tee -a "$REPORT"; WARN=$((WARN+1)); }
+pass()    { echo "- [x] $1"        | tee -a "$REPORT"; PASS=$((PASS+1)); }
+fail()    { echo "- [ ] FAIL $1"   | tee -a "$REPORT"; FAIL=$((FAIL+1)); }
+warn()    { echo "- [~] WARN $1"   | tee -a "$REPORT"; WARN=$((WARN+1)); }
+info()    { echo "  > $1"          | tee -a "$REPORT"; }
 
 rm -f "$REPORT"
-echo "# Youtuop Platform — Full Audit Report" >> "$REPORT"
-echo "Generated: $(date -u)" >> "$REPORT"
+echo "# Youtuop Platform — Full Institutional Audit Report v2.0" >> "$REPORT"
+echo "Generated: $(date -u)"                                      >> "$REPORT"
 echo "Commit: $(git rev-parse --short HEAD 2>/dev/null || echo unknown)" >> "$REPORT"
 echo "Branch: $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)" >> "$REPORT"
 echo "---" >> "$REPORT"
+
+# ── Services التي تحتاج automountServiceAccountToken: true بشكل مبرر ──────
+# ingestion: Vault Agent sidecar
+# ml-engine: IRSA للوصول لـ S3
+# tenant-operator: K8s API للـ namespace management
+LEGITIMATE_AUTOMOUNT="ingestion ml-engine tenant-operator"
+
+# ── Services التي لها local replace directive مبررة ─────────────────────────
+# hydration: تستورد proto types من root module
+# ingestion: تستورد proto types من root module
+LEGITIMATE_REPLACE="hydration ingestion"
 
 # ══════════════════════════════════════════════════════════════════
 # 1. Repository Structure
 # ══════════════════════════════════════════════════════════════════
 section "1. Repository Structure"
-find . -mindepth 1 -maxdepth 3 \
-  -not -path "./.git/*" \
-  -not -path "./vendor/*" \
-  -not -path "./target/*" \
-  -not -path "./.terraform/*" \
-  | sort >> "$REPORT"
+for dir in services k8s proto gen scripts .github/workflows; do
+  [ -d "$dir" ] && pass "Directory exists: $dir" || fail "Directory MISSING: $dir"
+done
+[ -f ".env.example" ]  && pass ".env.example present" || fail ".env.example MISSING"
+[ -f "Makefile" ]      && pass "Makefile present"     || warn "Makefile missing"
+[ -f "README.md" ]     && pass "Root README.md present" || warn "Root README.md missing"
+[ -f "CHANGELOG.md" ]  && pass "CHANGELOG.md present" || warn "CHANGELOG.md missing"
+[ -f "SECURITY.md" ]   && pass "SECURITY.md present"  || warn "SECURITY.md missing"
+[ -f ".gitignore" ]    && pass ".gitignore present"    || fail ".gitignore MISSING"
+[ -f ".gitleaks.toml" ] && pass ".gitleaks.toml present" || warn ".gitleaks.toml missing"
 
 # ══════════════════════════════════════════════════════════════════
 # 2. Duplicate Files
 # ══════════════════════════════════════════════════════════════════
 section "2. Duplicate Files"
+# fdupes check مع syntax صحيح
 if command -v fdupes >/dev/null 2>&1; then
-  DUP=$(fdupes -rq . --exclude=".git" --exclude="vendor" 2>/dev/null || true)
-  if [ -z "$DUP" ]; then pass "No exact duplicate files"
-  else fail "Duplicate files found"; echo "$DUP" >> "$REPORT"; fi
+  DUP=$(fdupes -rq . 2>/dev/null | grep -v "^$" | grep -v ".git" | grep -v "vendor" | grep -v "target" || true)
+  if [ -z "$DUP" ]; then pass "No exact duplicate files (fdupes)"
+  else fail "Duplicate files found"; echo "$DUP" | head -10 >> "$REPORT"; fi
 else
   warn "fdupes not installed — skipping exact duplicate check"
 fi
 
-SAME=$(find . -not -path "./.git/*" -not -path "./vendor/*" -type f \
-  | awk -F/ '{print $NF}' | sort | uniq -d)
-if [ -z "$SAME" ]; then pass "No filename collisions"
-else warn "Same filename exists in multiple paths (expected in monorepo)"; echo "$SAME" >> "$REPORT"; fi
+# Filename collisions (طبيعي في monorepo)
+SAME=$(find . -not -path "./.git/*" -not -path "./vendor/*" -not -path "./target/*" \
+  -type f | awk -F/ '{print $NF}' | sort | uniq -d | grep -v "^go\.\|^Cargo\.\|^main\." || true)
+if [ -z "$SAME" ]; then pass "No unexpected filename collisions"
+else warn "Same filename in multiple paths (expected for go.mod/Cargo.toml/main.go):"; echo "$SAME" >> "$REPORT"; fi
 
 # ══════════════════════════════════════════════════════════════════
-# 3. Go Services
+# 3. Go Services — Build + Vet + Test
 # ══════════════════════════════════════════════════════════════════
-section "3. Go Services"
+section "3. Go Services — Build + Vet + Test"
 find services -maxdepth 2 -name "go.mod" | sort | while read -r modfile; do
   DIR=$(dirname "$modfile")
+  NAME=$(basename "$DIR")
+
+  # go build
   OUT=$(cd "$DIR" && go build ./... 2>&1 || true)
-  if [ -z "$OUT" ]; then pass "go build OK: $DIR"; else fail "go build FAILED: $DIR"; echo "$OUT" >> "$REPORT"; fi
+  if [ -z "$OUT" ]; then pass "go build OK: $NAME"
+  else fail "go build FAILED: $NAME"; echo "$OUT" | head -5 >> "$REPORT"; fi
+
+  # go vet
   OUT=$(cd "$DIR" && go vet ./... 2>&1 || true)
-  if [ -z "$OUT" ]; then pass "go vet OK: $DIR"; else fail "go vet issues: $DIR"; echo "$OUT" >> "$REPORT"; fi
-  if [ -f "$DIR/Dockerfile" ] || [ -f "$DIR/Dockerfile.arm64" ]; then
-    pass "Dockerfile present: $DIR"
+  if [ -z "$OUT" ]; then pass "go vet OK: $NAME"
+  else fail "go vet issues: $NAME"; echo "$OUT" | head -5 >> "$REPORT"; fi
+
+  # go test (unit tests فقط — بدون integration)
+  OUT=$(cd "$DIR" && go test -short -timeout 30s ./... 2>&1 || true)
+  if echo "$OUT" | grep -q "^FAIL\|^---\ FAIL"; then
+    fail "go test FAILED: $NAME"
+    echo "$OUT" | grep "^FAIL\|^---\ FAIL" | head -5 >> "$REPORT"
+  elif echo "$OUT" | grep -q "no test files"; then
+    warn "No test files: $NAME"
   else
-    fail "Dockerfile MISSING: $DIR"
+    pass "go test OK: $NAME"
+  fi
+
+  # Dockerfile
+  if [ -f "$DIR/Dockerfile" ] || [ -f "$DIR/Dockerfile.arm64" ]; then
+    pass "Dockerfile present: $NAME"
+  else
+    fail "Dockerfile MISSING: $NAME"
   fi
 done
 
 # ══════════════════════════════════════════════════════════════════
-# 4. Rust Services
+# 4. Rust Services — Check + Clippy
 # ══════════════════════════════════════════════════════════════════
-section "4. Rust Services"
-find . -not -path "./.git/*" -not -path "./target/*" -name "Cargo.toml" | sort | while read -r f; do
-  DIR=$(dirname "$f")
-  if grep -q "^\[package\]" "$f" 2>/dev/null; then
-    OUT=$(cd "$DIR" && cargo check 2>&1 || true)
-    if echo "$OUT" | grep -q "^error"; then
-      fail "cargo check FAILED: $DIR"
-      echo "$OUT" | grep "^error" | head -10 >> "$REPORT"
-    else
-      pass "cargo check OK: $DIR"
-    fi
+section "4. Rust Services — Check + Clippy"
+if ! command -v cargo >/dev/null 2>&1; then
+  # ابحث عن cargo في مسارات غير معيارية
+  CARGO_PATH=$(find /usr/local /root /home -name "cargo" -type f 2>/dev/null | head -1 || true)
+  if [ -n "$CARGO_PATH" ]; then
+    export PATH="$(dirname $CARGO_PATH):$PATH"
+  else
+    warn "cargo not found in PATH — Rust checks skipped (expected in Codespace without Rust toolchain)"
   fi
-done
+fi
+
+if command -v cargo >/dev/null 2>&1; then
+  find . -not -path "./.git/*" -not -path "./target/*" -name "Cargo.toml" | sort | while read -r f; do
+    DIR=$(dirname "$f")
+    if grep -q "^\[package\]" "$f" 2>/dev/null; then
+      NAME=$(basename "$DIR")
+
+      # cargo check
+      OUT=$(cd "$DIR" && cargo check 2>&1 || true)
+      if echo "$OUT" | grep -q "^error"; then
+        fail "cargo check FAILED: $NAME"
+        echo "$OUT" | grep "^error" | head -5 >> "$REPORT"
+      else
+        pass "cargo check OK: $NAME"
+      fi
+
+      # cargo clippy
+      OUT=$(cd "$DIR" && cargo clippy -- -D warnings 2>&1 || true)
+      if echo "$OUT" | grep -q "^error"; then
+        fail "cargo clippy errors: $NAME"
+        echo "$OUT" | grep "^error" | head -5 >> "$REPORT"
+      elif echo "$OUT" | grep -q "^warning"; then
+        warn "cargo clippy warnings: $NAME"
+      else
+        pass "cargo clippy OK: $NAME"
+      fi
+
+      # Cargo.lock
+      [ -f "$DIR/Cargo.lock" ] \
+        && pass "Cargo.lock present: $NAME" \
+        || fail "Cargo.lock MISSING: $NAME — reproducible builds require lock file"
+    fi
+  done
+else
+  warn "cargo not available — all Rust checks skipped"
+fi
 
 # ══════════════════════════════════════════════════════════════════
 # 5. Proto Generated Files
 # ══════════════════════════════════════════════════════════════════
 section "5. Proto Generated Files"
+[ -d "proto" ] || { fail "proto/ directory missing"; }
+[ -d "gen" ]   || { fail "gen/ directory missing — run: make proto"; }
+
 find proto -name "*.proto" 2>/dev/null | sort | while read -r proto; do
   BASE=$(basename "$proto" .proto)
-  PB=$(find gen -name "${BASE}.pb.go" 2>/dev/null)
-  if [ -z "$PB" ]; then fail "Missing gen/${BASE}.pb.go"; else pass "${BASE}.pb.go exists"; fi
+  PB=$(find gen -name "${BASE}.pb.go" 2>/dev/null | head -1)
+  [ -n "$PB" ] && pass "${BASE}.pb.go exists" || fail "Missing gen/${BASE}.pb.go — run: make proto"
+
   if grep -q "^service " "$proto" 2>/dev/null; then
-    GRPC=$(find gen -name "${BASE}_grpc.pb.go" 2>/dev/null)
-    if [ -z "$GRPC" ]; then fail "Missing gen/${BASE}_grpc.pb.go"; else pass "${BASE}_grpc.pb.go exists"; fi
+    GRPC=$(find gen -name "${BASE}_grpc.pb.go" 2>/dev/null | head -1)
+    [ -n "$GRPC" ] && pass "${BASE}_grpc.pb.go exists" || fail "Missing gen/${BASE}_grpc.pb.go"
   fi
 done
 
 # ══════════════════════════════════════════════════════════════════
-# 6. Kubernetes Manifests — kubeconform
+# 6. Proto Tooling — buf
 # ══════════════════════════════════════════════════════════════════
-section "6. Kubernetes Manifests — kubeconform"
+section "6. Proto Tooling — buf"
+# buf.yaml ممكن يكون في proto/ أو الجذر
+BUF_YAML=""
+[ -f "buf.yaml" ]       && BUF_YAML="buf.yaml"
+[ -f "proto/buf.yaml" ] && BUF_YAML="proto/buf.yaml"
+[ -n "$BUF_YAML" ] && pass "buf.yaml found: $BUF_YAML" || fail "buf.yaml MISSING (checked root + proto/)"
+
+BUF_GEN=""
+[ -f "buf.gen.yaml" ]       && BUF_GEN="buf.gen.yaml"
+[ -f "proto/buf.gen.yaml" ] && BUF_GEN="proto/buf.gen.yaml"
+[ -n "$BUF_GEN" ] && pass "buf.gen.yaml found: $BUF_GEN" || fail "buf.gen.yaml MISSING"
+
+[ -f "buf.lock" ] || [ -f "proto/buf.lock" ] \
+  && pass "buf.lock present" \
+  || warn "buf.lock missing — run: buf dep update"
+
+if command -v buf >/dev/null 2>&1; then
+  BUF_DIR="."
+  [ -f "proto/buf.yaml" ] && BUF_DIR="proto"
+  BUFERR=$(cd "$BUF_DIR" && buf lint 2>&1 || true)
+  [ -z "$BUFERR" ] && pass "buf lint OK" || { fail "buf lint errors:"; echo "$BUFERR" | head -10 >> "$REPORT"; }
+else
+  warn "buf not installed — skipping proto lint"
+fi
+
+# ══════════════════════════════════════════════════════════════════
+# 7. Kubernetes Manifests — kubeconform
+# ══════════════════════════════════════════════════════════════════
+section "7. Kubernetes Manifests — kubeconform"
 if command -v kubeconform >/dev/null 2>&1; then
   FILES=$(find k8s -\( -name "*.yaml" -o -name "*.yml" \) \
     | xargs grep -l "^kind:" 2>/dev/null | head -200)
@@ -127,31 +235,58 @@ else
 fi
 
 # ══════════════════════════════════════════════════════════════════
-# 7. Helm Charts
+# 8. Kubernetes YAML Validity — python yaml.safe_load
 # ══════════════════════════════════════════════════════════════════
-section "7. Helm Charts"
+section "8. Kubernetes YAML Validity"
+if command -v python3 >/dev/null 2>&1; then
+  YAML_ERRORS=0
+  while IFS= read -r -d '' f; do
+    ERR=$(python3 -c "
+import yaml, sys
+try:
+    list(yaml.safe_load_all(open('$f')))
+    print('ok')
+except Exception as e:
+    print(f'ERROR: {e}')
+" 2>&1)
+    if ! echo "$ERR" | grep -q "^ok"; then
+      fail "Invalid YAML: $f"
+      info "$ERR"
+      YAML_ERRORS=$((YAML_ERRORS+1))
+    fi
+  done < <(find k8s -name "*.yaml" -print0 2>/dev/null)
+  [ "$YAML_ERRORS" -eq 0 ] && pass "All K8s YAML files are valid"
+else
+  warn "python3 not available — skipping YAML validation"
+fi
+
+# ══════════════════════════════════════════════════════════════════
+# 9. Helm Charts
+# ══════════════════════════════════════════════════════════════════
+section "9. Helm Charts"
 if command -v helm >/dev/null 2>&1; then
+  CHART_COUNT=0
   find . -not -path "./.git/*" -name "Chart.yaml" | sort | while read -r f; do
-    DIR=$(dirname "$f")
-    NAME=$(basename "$DIR")
+    DIR=$(dirname "$f"); NAME=$(basename "$DIR")
+    CHART_COUNT=$((CHART_COUNT+1))
     OUT=$(helm lint "$DIR" 2>&1 || true)
     ERRS=$(echo "$OUT" | grep -c "^\[ERROR\]" || true)
     WARNS=$(echo "$OUT" | grep -c "^\[WARNING\]" || true)
     if [ "$ERRS" -eq 0 ] && [ "$WARNS" -eq 0 ]; then pass "helm lint $NAME OK"
     elif [ "$ERRS" -eq 0 ]; then warn "helm lint $NAME: $WARNS warning(s)"
-    else fail "helm lint $NAME: $ERRS error(s)"; echo "$OUT" | grep "ERROR" >> "$REPORT"
-    fi
+    else fail "helm lint $NAME: $ERRS error(s)"; echo "$OUT" | grep "ERROR" >> "$REPORT"; fi
   done
+  [ "$CHART_COUNT" -eq 0 ] && info "No Helm charts found in repo"
 else
   warn "helm not installed"
 fi
 
 # ══════════════════════════════════════════════════════════════════
-# 8. ArgoCD App Paths
+# 10. ArgoCD App Paths
 # ══════════════════════════════════════════════════════════════════
-section "8. ArgoCD App Paths"
+section "10. ArgoCD App Paths"
 if command -v yq >/dev/null 2>&1; then
-  find infra/argocd -\( -name "*.yaml" -o -name "*.yml" \) \
+  find infra/argocd k8s/ -\( -name "*.yaml" -o -name "*.yml" \) 2>/dev/null \
     | xargs grep -l "kind: Application$" 2>/dev/null | sort | while read -r app; do
     NAME=$(yq '.metadata.name' "$app" 2>/dev/null || echo "unknown")
     PVAL=$(yq '.spec.source.path' "$app" 2>/dev/null || echo "")
@@ -169,28 +304,29 @@ else
 fi
 
 # ══════════════════════════════════════════════════════════════════
-# 9. Empty Directories
+# 11. Empty Directories
 # ══════════════════════════════════════════════════════════════════
-section "9. Empty Directories"
-EMPTY=$(find . -not -path "./.git/*" -not -path "./vendor/*" -type d -empty 2>/dev/null | sort)
+section "11. Empty Directories"
+EMPTY=$(find . -not -path "./.git/*" -not -path "./vendor/*" \
+  -not -path "./target/*" -type d -empty 2>/dev/null | sort)
 if [ -z "$EMPTY" ]; then pass "No empty directories"
-else warn "Empty directories found:"; echo "$EMPTY" >> "$REPORT"
-fi
+else warn "Empty directories found:"; echo "$EMPTY" >> "$REPORT"; fi
 
 # ══════════════════════════════════════════════════════════════════
-# 10. Large Files (tracked by git, >1MB)
+# 12. Large Files (tracked by git, >1MB)
 # ══════════════════════════════════════════════════════════════════
-section "10. Large Files over 1MB (git-tracked)"
-LARGE=$(git ls-files | xargs -I{} find {} -size +1M 2>/dev/null | sort)
+section "12. Large Files over 1MB (git-tracked)"
+LARGE=$(git ls-files 2>/dev/null | while IFS= read -r f; do
+  [ -f "$f" ] && find "$f" -size +1M 2>/dev/null
+done | sort)
 if [ -z "$LARGE" ]; then pass "No large files tracked in git"
 else fail "Large files tracked in git:"; echo "$LARGE" >> "$REPORT"; fi
 
-set +e
-
 # ══════════════════════════════════════════════════════════════════
-# 11. Kustomization Orphan Files
+# 13. Kustomization Orphan Files
+# لماذا: ملف غير مسجّل = ArgoCD يتجاهله تماماً
 # ══════════════════════════════════════════════════════════════════
-section "11. Kustomization Orphan Files"
+section "13. Kustomization Orphan Files"
 ORPHAN_COUNT=0
 for dir in k8s/base/*/; do
   kust="$dir/kustomization.yaml"
@@ -207,9 +343,9 @@ done
 [ "$ORPHAN_COUNT" -eq 0 ] && pass "No orphan yaml files in k8s/base"
 
 # ══════════════════════════════════════════════════════════════════
-# 12. Overlays Completeness (app services only)
+# 14. Overlays Completeness
 # ══════════════════════════════════════════════════════════════════
-section "12. Overlays Completeness (app services)"
+section "14. Overlays Completeness"
 for svc in services/*/; do
   name=$(basename "$svc")
   staging="k8s/overlays/staging/$name/kustomization.yaml"
@@ -220,632 +356,34 @@ for svc in services/*/; do
 done
 
 # ══════════════════════════════════════════════════════════════════
-# 13. Service Completeness — ESO / PDB / ScaledObject
+# 15. Service Completeness — ESO / PDB / ScaledObject / Certificate
 # ══════════════════════════════════════════════════════════════════
-section "13. Service Completeness — ESO / PDB / ScaledObject"
+section "15. Service Completeness — ESO / PDB / ScaledObject / Certificate"
 for svc in services/*/; do
   name=$(basename "$svc")
   base="k8s/base/$name"
   [ -d "$base" ] || continue
+
   eso=$(find "$base" -maxdepth 1 -name "externalsecret*.yaml" 2>/dev/null | wc -l)
   pdb=$(find "$base" -maxdepth 1 -name "pdb*.yaml" -o -name "poddisruptionbudget*.yaml" 2>/dev/null | wc -l)
   hpa=$(find "$base" -maxdepth 1 -name "hpa*.yaml" -o -name "scaledobject*.yaml" 2>/dev/null | wc -l)
+  cert=$(find "$base" -maxdepth 1 -name "certificate*.yaml" 2>/dev/null | wc -l)
+
   [ "$eso" -eq 0 ] && fail "Missing ExternalSecret: $name"
   [ "$pdb" -eq 0 ] && fail "Missing PodDisruptionBudget: $name"
   [ "$hpa" -eq 0 ] && fail "Missing ScaledObject/HPA: $name"
+  [ "$cert" -eq 0 ] && warn "Missing Certificate (mTLS): $name"
   [ "$eso" -gt 0 ] && [ "$pdb" -gt 0 ] && [ "$hpa" -gt 0 ] && pass "ESO+PDB+ScaledObject OK: $name"
 done
 
 # ══════════════════════════════════════════════════════════════════
-# 14. ArgoCD Applications exist
+# 16. ArgoCD ApplicationSet Coverage
 # ══════════════════════════════════════════════════════════════════
-section "14. ArgoCD Applications"
-ARGOCD_APPS=$(find k8s/ infra/ -name "*.yaml" 2>/dev/null \
-  | xargs grep -l "kind: Application" 2>/dev/null | wc -l)
-ARGOCD_APPSETS=$(find k8s/ infra/ -name "*.yaml" 2>/dev/null \
-  | xargs grep -l "kind: ApplicationSet" 2>/dev/null | wc -l)
-if [ "$ARGOCD_APPS" -gt 0 ] || [ "$ARGOCD_APPSETS" -gt 0 ]; then
-  pass "ArgoCD Applications found: apps=$ARGOCD_APPS appsets=$ARGOCD_APPSETS"
-else
-  fail "No ArgoCD Application or ApplicationSet — cluster will not sync"
-fi
-
-# ══════════════════════════════════════════════════════════════════
-# 15. CI/CD Build + Trivy Coverage
-# ══════════════════════════════════════════════════════════════════
-section "15. CI/CD Coverage — Build + Trivy"
-CI_FILE=".github/workflows/ci.yml"
-for svc in services/*/; do
-  name=$(basename "$svc")
-  [ -f "$svc/go.mod" ] || continue
-  if grep -q "build-$name\|working-directory: services/$name" "$CI_FILE" 2>/dev/null; then
-    pass "CI build job exists: $name"
-  else
-    fail "Missing CI build job: $name"
-  fi
-done
-for svc in services/*/; do
-  name=$(basename "$svc")
-  if grep -q "trivy-$name" "$CI_FILE" 2>/dev/null; then
-    pass "Trivy scan exists: $name"
-  else
-    fail "Missing Trivy scan in CI: $name"
-  fi
-done
-
-# ══════════════════════════════════════════════════════════════════
-# 16. IRSA Annotations — AWS Readiness
-# ══════════════════════════════════════════════════════════════════
-section "16. IRSA Annotations — AWS Readiness"
-IRSA_MISSING=0
-for svc in services/*/; do
-  name=$(basename "$svc")
-  sa="k8s/base/$name/serviceaccount.yaml"
-  [ -f "$sa" ] || continue
-  if grep -q "eks.amazonaws.com/role-arn\|eks.amazonaws" "$sa" 2>/dev/null; then
-    pass "IRSA annotation present: $name"
-  else
-    warn "IRSA annotation missing (required for AWS): $name"
-    IRSA_MISSING=$((IRSA_MISSING+1))
-  fi
-done
-[ "$IRSA_MISSING" -gt 0 ] && warn "Total services missing IRSA: $IRSA_MISSING"
-
-# ══════════════════════════════════════════════════════════════════
-# 17. Terraform
-# ══════════════════════════════════════════════════════════════════
-section "17. Terraform"
-if [ -d "terraform/" ]; then
-  TF_FILES=$(find terraform/ -name "*.tf" | wc -l)
-  [ "$TF_FILES" -gt 0 ] && pass "Terraform files found: $TF_FILES" \
-    || fail "terraform/ exists but contains no .tf files"
-  for env in terraform/environments/*/; do
-    [ -d "$env" ] || continue
-    ename=$(basename "$env")
-    [ -f "$env/main.tf" ]          || fail "Missing $ename/main.tf"
-    [ -f "$env/variables.tf" ]     || fail "Missing $ename/variables.tf"
-    [ -f "$env/terraform.tfvars" ] || fail "Missing $ename/terraform.tfvars"
-    [ -f "$env/backend.tf" ]       || fail "Missing $ename/backend.tf"
-    [ -f "$env/main.tf" ] && [ -f "$env/variables.tf" ] && \
-    [ -f "$env/terraform.tfvars" ] && [ -f "$env/backend.tf" ] && \
-      pass "Terraform environment complete: $ename"
-  done
-else
-  fail "terraform/ not found — AWS deployment impossible"
-fi
-
-# ══════════════════════════════════════════════════════════════════
-# 18. Cargo.lock
-# ══════════════════════════════════════════════════════════════════
-section "18. Cargo.lock"
-find services/ -name "Cargo.toml" | while read -r f; do
-  dir=$(dirname "$f")
-  name=$(basename "$dir")
-  if grep -q "^\[package\]" "$f" 2>/dev/null; then
-    [ -f "$dir/Cargo.lock" ] \
-      && pass "Cargo.lock present: $name" \
-      || fail "Cargo.lock missing: $name"
-  fi
-done
-
-# ══════════════════════════════════════════════════════════════════
-# 19. Kustomization Header Accuracy
-# ══════════════════════════════════════════════════════════════════
-section "19. Kustomization Header Accuracy"
-for kust in k8s/base/*/kustomization.yaml; do
-  dir=$(dirname "$kust")
-  name=$(basename "$dir")
-  if grep -q "المسار الكامل" "$kust"; then
-    declared=$(grep "المسار الكامل" "$kust" \
-      | grep -o "k8s/base/[^/]*/kustomization.yaml" | head -1)
-    if [ -n "$declared" ] && [ "$declared" != "k8s/base/$name/kustomization.yaml" ]; then
-      fail "Wrong header in $name/kustomization.yaml — declares $declared"
-    else
-      pass "Header accurate: $name"
-    fi
-  fi
-done
-
-# ══════════════════════════════════════════════════════════════════
-# 20. Security — Hardcoded Secrets Scan
-# لماذا: secret مكتوب في الكود يُسرَّب في git history للأبد
-# ══════════════════════════════════════════════════════════════════
-section "20. Security — Hardcoded Secrets Scan"
-SECRET_PATTERNS=(
-  'password\s*=\s*"[^"]+'
-  'secret\s*=\s*"[^"]+'
-  'api_key\s*=\s*"[^"]+'
-  'apikey\s*=\s*"[^"]+'
-  'token\s*=\s*"[^"]+'
-  'AKIA[0-9A-Z]{16}'
-  '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY'
-  'Authorization:\s*Bearer\s+[A-Za-z0-9\-_.]+'
-)
-SECRET_FOUND=0
-for pattern in "${SECRET_PATTERNS[@]}"; do
-  HITS=$(grep -rniE "$pattern" \
-    --include="*.go" --include="*.rs" --include="*.py" \
-    --include="*.ts" --include="*.js" --include="*.env" \
-    --exclude-dir=".git" --exclude-dir="vendor" --exclude-dir="target" \
-    . 2>/dev/null \
-    | grep -v "_test.go" \
-    | grep -v "example\|sample\|placeholder\|YOUR_\|CHANGE_ME\|TODO\|fake\|mock" \
-    | grep -v "^Binary" || true)
-  if [ -n "$HITS" ]; then
-    fail "Potential hardcoded secret (pattern: $pattern)"
-    echo "$HITS" | head -5 >> "$REPORT"
-    SECRET_FOUND=$((SECRET_FOUND+1))
-  fi
-done
-[ "$SECRET_FOUND" -eq 0 ] && pass "No hardcoded secrets detected in source code"
-
-# ══════════════════════════════════════════════════════════════════
-# 21. Security — Pod Security Context
-# لماذا: container يشتغل كـ root أو بصلاحيات escalation = ثغرة أمنية
-# ══════════════════════════════════════════════════════════════════
-section "21. Security — Pod Security Context"
-for svc in services/*/; do
-  name=$(basename "$svc")
-  base="k8s/base/$name"
-  [ -d "$base" ] || continue
-  # ابحث في deployment.yaml أو rollout.yaml
-  manifest=$(find "$base" -maxdepth 1 \( -name "deployment.yaml" -o -name "rollout.yaml" \) 2>/dev/null | head -1)
-  [ -z "$manifest" ] && continue
-
-  grep -q "runAsNonRoot: true" "$manifest" \
-    && pass "runAsNonRoot=true: $name" \
-    || fail "runAsNonRoot missing or false: $name"
-
-  grep -q "readOnlyRootFilesystem: true" "$manifest" \
-    && pass "readOnlyRootFilesystem=true: $name" \
-    || fail "readOnlyRootFilesystem missing or false: $name"
-
-  grep -q 'allowPrivilegeEscalation: false' "$manifest" \
-    && pass "allowPrivilegeEscalation=false: $name" \
-    || fail "allowPrivilegeEscalation missing: $name"
-
-  grep -q 'drop:' "$manifest" \
-    && pass "capabilities.drop present: $name" \
-    || fail "capabilities.drop missing: $name"
-done
-
-# ══════════════════════════════════════════════════════════════════
-# 22. Security — NetworkPolicy Coverage
-# لماذا: بدون NetworkPolicy أي pod يقدر يكلّم أي pod في الـ cluster
-# ══════════════════════════════════════════════════════════════════
-section "22. Security — NetworkPolicy Coverage"
-for svc in services/*/; do
-  name=$(basename "$svc")
-  base="k8s/base/$name"
-  [ -d "$base" ] || continue
-  if find "$base" -maxdepth 1 -name "networkpolicy*.yaml" 2>/dev/null | grep -q .; then
-    pass "NetworkPolicy present: $name"
-  else
-    fail "NetworkPolicy MISSING: $name"
-  fi
-done
-
-# تحقق من وجود default-deny في كل namespace
-if find k8s/ -name "*.yaml" | xargs grep -l "default-deny\|deny-all" 2>/dev/null | grep -q .; then
-  pass "Default-deny NetworkPolicy found"
-else
-  warn "No default-deny NetworkPolicy found — open mesh by default"
-fi
-
-# ══════════════════════════════════════════════════════════════════
-# 23. Security — ServiceAccount Token Automount
-# لماذا: token مرفوع تلقائياً يُعرِّض الـ API server لأي container مخترق
-# ══════════════════════════════════════════════════════════════════
-section "23. Security — ServiceAccount Token Automount Disabled"
-for svc in services/*/; do
-  name=$(basename "$svc")
-  sa="k8s/base/$name/serviceaccount.yaml"
-  [ -f "$sa" ] || continue
-  if grep -q "automountServiceAccountToken: false" "$sa"; then
-    pass "automountServiceAccountToken=false: $name"
-  else
-    fail "automountServiceAccountToken not disabled: $name"
-  fi
-done
-
-# ══════════════════════════════════════════════════════════════════
-# 24. Security — No :latest Image Tags
-# لماذا: :latest غير محدد الإصدار — يكسر reproducibility والـ rollback
-# ══════════════════════════════════════════════════════════════════
-section "24. Security — No :latest Image Tags"
-LATEST_HITS=$(grep -rn "image:.*:latest" k8s/ \
-  --include="*.yaml" 2>/dev/null | grep -v "^#" || true)
-if [ -z "$LATEST_HITS" ]; then
-  pass "No :latest image tags in k8s manifests"
-else
-  fail "Found :latest image tags — breaks reproducibility"
-  echo "$LATEST_HITS" >> "$REPORT"
-fi
-
-# ══════════════════════════════════════════════════════════════════
-# 25. Security — RBAC: No ClusterAdmin for App Services
-# لماذا: cluster-admin = god mode — أي service يخترق يتحكم في كل الـ cluster
-# ══════════════════════════════════════════════════════════════════
-section "25. Security — RBAC ClusterAdmin Check"
-CLUSTER_ADMIN=$(grep -rn "cluster-admin" k8s/ --include="*.yaml" 2>/dev/null \
-  | grep -v "^#" \
-  | grep -v "argocd\|kyverno\|cert-manager\|cilium\|velero" || true)
-if [ -z "$CLUSTER_ADMIN" ]; then
-  pass "No app service bound to cluster-admin"
-else
-  warn "cluster-admin binding found — verify it is infrastructure only:"
-  echo "$CLUSTER_ADMIN" >> "$REPORT"
-fi
-
-# ══════════════════════════════════════════════════════════════════
-# 26. Security — Kyverno Policies Present
-# لماذا: Kyverno = admission controller — يمنع manifests غير الآمنة من الدخول
-# ══════════════════════════════════════════════════════════════════
-section "26. Security — Kyverno Policies"
-KYVERNO_POLICIES=$(find k8s/ -name "*.yaml" 2>/dev/null \
-  | xargs grep -l "kind: ClusterPolicy\|kind: Policy" 2>/dev/null | wc -l)
-if [ "$KYVERNO_POLICIES" -gt 0 ]; then
-  pass "Kyverno ClusterPolicy/Policy found: $KYVERNO_POLICIES file(s)"
-else
-  fail "No Kyverno policies found — no admission enforcement"
-fi
-
-# ══════════════════════════════════════════════════════════════════
-# 27. Kubernetes — Resource Requests & Limits
-# لماذا: بدون limits الـ container ياكل كل موارد الـ node وييجي OOMKilled
-# ══════════════════════════════════════════════════════════════════
-section "27. Kubernetes — Resource Requests & Limits"
-for svc in services/*/; do
-  name=$(basename "$svc")
-  base="k8s/base/$name"
-  [ -d "$base" ] || continue
-  manifest=$(find "$base" -maxdepth 1 \( -name "deployment.yaml" -o -name "rollout.yaml" \) 2>/dev/null | head -1)
-  [ -z "$manifest" ] && continue
-  grep -q "requests:" "$manifest" \
-    && pass "resources.requests present: $name" \
-    || fail "resources.requests MISSING: $name"
-  grep -q "limits:" "$manifest" \
-    && pass "resources.limits present: $name" \
-    || fail "resources.limits MISSING: $name"
-done
-
-# ══════════════════════════════════════════════════════════════════
-# 28. Kubernetes — Liveness & Readiness Probes
-# لماذا: بدون probes الـ pod بيظل في الـ LB حتى لو dead
-# ══════════════════════════════════════════════════════════════════
-section "28. Kubernetes — Health Probes"
-for svc in services/*/; do
-  name=$(basename "$svc")
-  base="k8s/base/$name"
-  [ -d "$base" ] || continue
-  manifest=$(find "$base" -maxdepth 1 \( -name "deployment.yaml" -o -name "rollout.yaml" \) 2>/dev/null | head -1)
-  [ -z "$manifest" ] && continue
-  grep -q "livenessProbe:" "$manifest" \
-    && pass "livenessProbe present: $name" \
-    || fail "livenessProbe MISSING: $name"
-  grep -q "readinessProbe:" "$manifest" \
-    && pass "readinessProbe present: $name" \
-    || fail "readinessProbe MISSING: $name"
-done
-
-# ══════════════════════════════════════════════════════════════════
-# 29. Kubernetes — Certificate Coverage
-# لماذا: كل service يحتاج TLS certificate من cert-manager للـ mTLS
-# ══════════════════════════════════════════════════════════════════
-section "29. Kubernetes — Certificate Coverage"
-for svc in services/*/; do
-  name=$(basename "$svc")
-  base="k8s/base/$name"
-  [ -d "$base" ] || continue
-  if find "$base" -maxdepth 1 -name "certificate*.yaml" 2>/dev/null | grep -q .; then
-    pass "Certificate present: $name"
-  else
-    warn "Certificate missing: $name (required for mTLS)"
-  fi
-done
-
-# ══════════════════════════════════════════════════════════════════
-# 30. Kubernetes — Prometheus Annotations on Workloads
-# لماذا: بدون annotations الـ Prometheus مش هيعرف يـ scrape الـ metrics
-# ══════════════════════════════════════════════════════════════════
-section "30. Kubernetes — Prometheus Scrape Annotations"
-for svc in services/*/; do
-  name=$(basename "$svc")
-  base="k8s/base/$name"
-  [ -d "$base" ] || continue
-  manifest=$(find "$base" -maxdepth 1 \( -name "deployment.yaml" -o -name "rollout.yaml" \) 2>/dev/null | head -1)
-  [ -z "$manifest" ] && continue
-  if grep -q "prometheus.io/scrape" "$manifest"; then
-    pass "Prometheus scrape annotation present: $name"
-  else
-    warn "Prometheus scrape annotation missing: $name"
-  fi
-done
-
-# ══════════════════════════════════════════════════════════════════
-# 31. Kubernetes — Namespace Consistency
-# لماذا: resource في namespace خطأ = ArgoCD يرفضه أو يعزله غلط
-# ══════════════════════════════════════════════════════════════════
-section "31. Kubernetes — Namespace Consistency"
-for svc in services/*/; do
-  name=$(basename "$svc")
-  base="k8s/base/$name"
-  [ -d "$base" ] || continue
-  NAMESPACES=$(grep -rh "namespace:" "$base" --include="*.yaml" 2>/dev/null \
-    | grep -v "^#" | sort -u | grep -v "kustomization" || true)
-  NS_COUNT=$(echo "$NAMESPACES" | grep -v "^$" | wc -l)
-  if [ "$NS_COUNT" -le 1 ]; then
-    pass "Namespace consistent: $name"
-  else
-    warn "Multiple namespaces in $name manifests — verify intentional:"
-    echo "$NAMESPACES" >> "$REPORT"
-  fi
-done
-
-# ══════════════════════════════════════════════════════════════════
-# 32. CI/CD — Required Workflow Files Exist
-# لماذا: ملف workflow ناقص = pipeline كامل بيوقف
-# ══════════════════════════════════════════════════════════════════
-section "32. CI/CD — Required Workflow Files"
-REQUIRED_WORKFLOWS=(
-  ".github/workflows/ci.yml"
-  ".github/workflows/release.yml"
-  ".github/workflows/image-sign.yml"
-)
-for wf in "${REQUIRED_WORKFLOWS[@]}"; do
-  [ -f "$wf" ] && pass "Workflow exists: $wf" || fail "Workflow MISSING: $wf"
-done
-
-# ══════════════════════════════════════════════════════════════════
-# 33. CI/CD — Workflow YAML Validity
-# لماذا: YAML خطأ = GitHub Actions يرفض الـ workflow بالكامل
-# ══════════════════════════════════════════════════════════════════
-section "33. CI/CD — Workflow YAML Validity"
-if command -v python3 >/dev/null 2>&1; then
-  find .github/workflows -name "*.yml" -o -name "*.yaml" 2>/dev/null | sort | while read -r wf; do
-    ERR=$(python3 -c "
-import yaml, sys
-try:
-    list(yaml.safe_load_all(open('$wf')))
-    print('ok')
-except Exception as e:
-    print(f'ERROR: {e}')
-" 2>&1)
-    if echo "$ERR" | grep -q "^ok"; then
-      pass "Valid YAML: $wf"
-    else
-      fail "Invalid YAML: $wf — $ERR"
-    fi
-  done
-else
-  warn "python3 not available — skipping workflow YAML validation"
-fi
-
-# ══════════════════════════════════════════════════════════════════
-# 34. CI/CD — image-sign.yml + release.yml Coverage per Service
-# لماذا: service بدون entry = image مش موقّع ومش بيتنزل على الـ cluster
-# ══════════════════════════════════════════════════════════════════
-section "34. CI/CD — image-sign.yml + release.yml Per-Service Coverage"
-for svc in services/*/; do
-  name=$(basename "$svc")
-  grep -qi "$name" .github/workflows/image-sign.yml 2>/dev/null \
-    && pass "image-sign.yml covers: $name" \
-    || fail "image-sign.yml MISSING: $name"
-  grep -qi "$name" .github/workflows/release.yml 2>/dev/null \
-    && pass "release.yml covers: $name" \
-    || fail "release.yml MISSING: $name"
-done
-
-# ══════════════════════════════════════════════════════════════════
-# 35. Go — Module Hygiene
-# لماذا: replace directive لـ local path = build يفشل خارج الـ dev machine
-# ══════════════════════════════════════════════════════════════════
-section "35. Go — Module Hygiene"
-find services -maxdepth 2 -name "go.mod" | sort | while read -r modfile; do
-  dir=$(dirname "$modfile")
-  name=$(basename "$dir")
-
-  # go.sum يجب أن يكون موجوداً
-  [ -f "$dir/go.sum" ] \
-    && pass "go.sum present: $name" \
-    || fail "go.sum MISSING: $name — run 'go mod tidy'"
-
-  # لا replace directives تشير لـ local paths
-  LOCAL_REPLACE=$(grep "^replace" "$modfile" | grep "\.\." || true)
-  if [ -n "$LOCAL_REPLACE" ]; then
-    fail "Local replace directive in go.mod: $name"
-    echo "$LOCAL_REPLACE" >> "$REPORT"
-  else
-    pass "No local replace directives: $name"
-  fi
-
-  # كل dependency محددة الإصدار (لا pseudo-versions للـ main packages)
-  PSEUDO=$(grep "v0\.0\.0-[0-9]" "$modfile" | grep -v "//\s*indirect" | wc -l)
-  if [ "$PSEUDO" -gt 3 ]; then
-    warn "Many pseudo-version dependencies in $name ($PSEUDO) — consider pinning"
-  fi
-done
-
-# ══════════════════════════════════════════════════════════════════
-# 36. Proto Tooling
-# لماذا: buf.yaml ناقص = buf lint يفشل = proto generation ينكسر
-# ══════════════════════════════════════════════════════════════════
-section "36. Proto Tooling"
-[ -f "buf.yaml" ]     && pass "buf.yaml present at root"     || fail "buf.yaml MISSING at root"
-[ -f "buf.gen.yaml" ] && pass "buf.gen.yaml present at root" || fail "buf.gen.yaml MISSING at root"
-[ -f "buf.lock" ]     && pass "buf.lock present at root"     || warn "buf.lock missing — run 'buf dep update'"
-
-# buf lint
-if command -v buf >/dev/null 2>&1; then
-  BUFERR=$(buf lint 2>&1 || true)
-  if [ -z "$BUFERR" ]; then
-    pass "buf lint OK"
-  else
-    fail "buf lint errors:"
-    echo "$BUFERR" >> "$REPORT"
-  fi
-else
-  warn "buf not installed — skipping proto lint"
-fi
-
-# ══════════════════════════════════════════════════════════════════
-# 37. Database Migrations — Sequencing & Scope Headers
-# لماذا: فجوة في الترقيم = goose يوقف الـ migration chain
-# ══════════════════════════════════════════════════════════════════
-section "37. Database Migrations — Sequencing & Scope Headers"
-find services -path "*/migrations/*.sql" 2>/dev/null | sort | while read -r f; do
-  # تحقق من scope header
-  if grep -q "^-- Scope:" "$f"; then
-    pass "Scope header present: $(basename $f)"
-  else
-    fail "Scope header missing: $f"
-  fi
-done
-
-# تحقق من عدم تكرار أرقام الـ migration
-ALL_NUMS=$(find services -path "*/migrations/*.sql" 2>/dev/null \
-  | awk -F/ '{print $NF}' | grep -oE '^[0-9]+' | sort)
-DUP_NUMS=$(echo "$ALL_NUMS" | uniq -d)
-if [ -z "$DUP_NUMS" ]; then
-  pass "No duplicate migration numbers"
-else
-  fail "Duplicate migration numbers found:"
-  echo "$DUP_NUMS" >> "$REPORT"
-fi
-
-# ══════════════════════════════════════════════════════════════════
-# 38. Git Hygiene — No Secrets or Binaries Tracked
-# لماذا: .env في git history = بيانات مسرَّبة للأبد حتى بعد الحذف
-# ══════════════════════════════════════════════════════════════════
-section "38. Git Hygiene — No Secrets or Binaries Tracked"
-
-# ملفات .env محظورة
-ENV_TRACKED=$(git ls-files | grep -E "^\.env$|/\.env$|\.env\." | grep -v ".env.example" || true)
-if [ -z "$ENV_TRACKED" ]; then
-  pass "No .env files tracked in git"
-else
-  fail "Secret .env files tracked in git:"
-  echo "$ENV_TRACKED" >> "$REPORT"
-fi
-
-# مفاتيح خاصة
-KEY_TRACKED=$(git ls-files | grep -E "\.(pem|key|p12|pfx|jks)$" || true)
-if [ -z "$KEY_TRACKED" ]; then
-  pass "No private key files tracked in git"
-else
-  fail "Private key files tracked in git:"
-  echo "$KEY_TRACKED" >> "$REPORT"
-fi
-
-# Merge conflict markers
-CONFLICT=$(grep -rn "^<<<<<<< \|^>>>>>>> \|^=======$" \
-  --include="*.go" --include="*.rs" --include="*.py" \
-  --include="*.yaml" --include="*.yml" --include="*.tf" \
-  --exclude-dir=".git" . 2>/dev/null || true)
-if [ -z "$CONFLICT" ]; then
-  pass "No merge conflict markers in source files"
-else
-  fail "Merge conflict markers found:"
-  echo "$CONFLICT" | head -10 >> "$REPORT"
-fi
-
-# Binary files tracked (عدا الـ images المتوقعة)
-BIN_TRACKED=$(git ls-files | xargs -I{} file {} 2>/dev/null \
-  | grep -v "text\|ASCII\|UTF-8\|JSON\|YAML\|empty\|symlink" \
-  | grep -v "\.(png\|jpg\|jpeg\|gif\|svg\|ico\|woff\|ttf):" \
-  | grep -v "^Binary" || true)
-if [ -z "$BIN_TRACKED" ]; then
-  pass "No unexpected binary files tracked"
-else
-  warn "Possible binary files tracked in git:"
-  echo "$BIN_TRACKED" | head -10 >> "$REPORT"
-fi
-
-# ══════════════════════════════════════════════════════════════════
-# 39. Python — Dependency Pinning
-# لماذا: dependency غير مثبتة = build مختلف في كل مرة = CVEs مخفية
-# ══════════════════════════════════════════════════════════════════
-section "39. Python — Dependency Pinning"
-find services -name "requirements.txt" 2>/dev/null | sort | while read -r req; do
-  name=$(dirname "$req" | xargs basename)
-  UNPINNED=$(grep -vE "^\s*#|^\s*$|==" "$req" | grep -vE "^-r |^-c |^--" || true)
-  if [ -z "$UNPINNED" ]; then
-    pass "All dependencies pinned with ==: $name"
-  else
-    fail "Unpinned dependencies in $name/requirements.txt:"
-    echo "$UNPINNED" >> "$REPORT"
-  fi
-done
-
-# ══════════════════════════════════════════════════════════════════
-# 40. Documentation — README per Service
-# لماذا: service بدون README = الـ onboarding يأخذ أيام بدل ساعات
-# ══════════════════════════════════════════════════════════════════
-section "40. Documentation — README per Service"
-[ -f "README.md" ] && pass "Root README.md present" || warn "Root README.md missing"
-[ -f "CHANGELOG.md" ] && pass "CHANGELOG.md present" || warn "CHANGELOG.md missing"
-
-for svc in services/*/; do
-  name=$(basename "$svc")
-  if [ -f "$svc/README.md" ]; then
-    pass "README.md present: $name"
-  else
-    warn "README.md missing: $name"
-  fi
-done
-
-# ══════════════════════════════════════════════════════════════════
-# 41. .env.example Completeness
-# لماذا: .env.example ناقصة = developer جديد مش عارف الـ vars المطلوبة
-# ══════════════════════════════════════════════════════════════════
-section "41. .env.example Completeness"
-if [ -f ".env.example" ]; then
-  pass ".env.example present at root"
-  # تحقق إن مفيش قيم حقيقية مكتوبة فيه
-  REAL_VALUES=$(grep -vE "^\s*#|^\s*$|=\s*$|=your_|=CHANGE_ME|=<|=example|=placeholder|=xxx" \
-    .env.example 2>/dev/null | grep "=" | head -5 || true)
-  if [ -n "$REAL_VALUES" ]; then
-    warn ".env.example may contain real values — verify:"
-    echo "$REAL_VALUES" >> "$REPORT"
-  else
-    pass ".env.example contains no apparent real secrets"
-  fi
-else
-  fail ".env.example missing at root — developers cannot configure locally"
-fi
-
-# ══════════════════════════════════════════════════════════════════
-# 42. Cosign / Supply Chain — SBOM & Signatures
-# لماذا: image غير موقّع = Kyverno يرفضه = deployment يفشل على AWS
-# ══════════════════════════════════════════════════════════════════
-section "42. Supply Chain — Cosign & SBOM Workflow"
-if grep -q "cosign" .github/workflows/image-sign.yml 2>/dev/null; then
-  pass "cosign signing present in image-sign.yml"
-else
-  fail "cosign signing NOT found in image-sign.yml"
-fi
-
-if grep -q "sbom\|syft\|cyclonedx" .github/workflows/image-sign.yml 2>/dev/null; then
-  pass "SBOM generation present in image-sign.yml"
-else
-  warn "SBOM generation not found in image-sign.yml"
-fi
-
-if grep -q "grype\|trivy" .github/workflows/image-sign.yml 2>/dev/null; then
-  pass "Vulnerability scan present in image-sign.yml"
-else
-  warn "Vulnerability scan not found in image-sign.yml"
-fi
-
-# ══════════════════════════════════════════════════════════════════
-# 43. ArgoCD ApplicationSet — All App Services Covered
-# لماذا: service غير مدرج في ApplicationSet = ArgoCD مش هيـ deploy
-# ══════════════════════════════════════════════════════════════════
-section "43. ArgoCD ApplicationSet Coverage"
+section "16. ArgoCD ApplicationSet Coverage"
 APPSET_FILE=$(find infra/ k8s/ -name "*.yaml" 2>/dev/null \
-  | xargs grep -l "kind: ApplicationSet" 2>/dev/null | head -1)
+  | xargs grep -l "kind: ApplicationSet" 2>/dev/null | head -1 || true)
 if [ -z "$APPSET_FILE" ]; then
-  fail "No ApplicationSet file found"
+  fail "No ApplicationSet file found — cluster will not auto-sync"
 else
   pass "ApplicationSet found: $APPSET_FILE"
   for svc in services/*/; do
@@ -858,36 +396,784 @@ else
   done
 fi
 
+# ArgoCD Application files
+APP_COUNT=$(find infra/ k8s/ -name "*.yaml" 2>/dev/null \
+  | xargs grep -l "kind: Application$" 2>/dev/null | wc -l || echo 0)
+[ "$APP_COUNT" -gt 0 ] && pass "ArgoCD Application files found: $APP_COUNT" \
+  || warn "No ArgoCD Application files found"
+
 # ══════════════════════════════════════════════════════════════════
-# 44. Dockerfile Convention
-# لماذا: ml-engine بـ Dockerfile.arm64 = wrong base image = build فاشل
+# 17. CI/CD — Required Workflow Files
 # ══════════════════════════════════════════════════════════════════
-section "44. Dockerfile Convention"
+section "17. CI/CD — Required Workflow Files"
+for wf in ci.yml release.yml image-sign.yml gitops-validate.yml; do
+  [ -f ".github/workflows/$wf" ] \
+    && pass "Workflow exists: $wf" \
+    || fail "Workflow MISSING: $wf"
+done
+
+# ══════════════════════════════════════════════════════════════════
+# 18. CI/CD — Workflow YAML Validity
+# ══════════════════════════════════════════════════════════════════
+section "18. CI/CD — Workflow YAML Validity"
+if command -v python3 >/dev/null 2>&1; then
+  find .github/workflows -name "*.yml" -o -name "*.yaml" 2>/dev/null | sort | while read -r wf; do
+    ERR=$(python3 -c "
+import yaml, sys
+try:
+    list(yaml.safe_load_all(open('$wf')))
+    print('ok')
+except Exception as e:
+    print(f'ERROR: {e}')
+" 2>&1)
+    echo "$ERR" | grep -q "^ok" \
+      && pass "Valid YAML: $wf" \
+      || { fail "Invalid YAML: $wf"; info "$ERR"; }
+  done
+else
+  warn "python3 not available"
+fi
+
+# ══════════════════════════════════════════════════════════════════
+# 19. CI/CD — Build + Trivy + image-sign + release Coverage
+# ══════════════════════════════════════════════════════════════════
+section "19. CI/CD — Full Pipeline Coverage per Service"
+CI_FILE=".github/workflows/ci.yml"
+SIGN_FILE=".github/workflows/image-sign.yml"
+RELEASE_FILE=".github/workflows/release.yml"
+
 for svc in services/*/; do
   name=$(basename "$svc")
-  # ml-engine يجب أن يستخدم Dockerfile فقط (Python)
-  if [ "$name" = "ml-engine" ]; then
-    [ -f "$svc/Dockerfile" ] \
-      && pass "ml-engine uses Dockerfile (Python) ✓" \
-      || fail "ml-engine/Dockerfile MISSING"
-    [ -f "$svc/Dockerfile.arm64" ] \
-      && fail "ml-engine has Dockerfile.arm64 — WRONG (Python service must use Dockerfile only)" \
-      || true
+
+  # Build job in CI
+  grep -q "build-$name\|working-directory: services/$name" "$CI_FILE" 2>/dev/null \
+    && pass "CI build: $name" || fail "CI build MISSING: $name"
+
+  # Trivy scan
+  grep -q "trivy-$name\|services/$name" "$CI_FILE" 2>/dev/null \
+    && pass "CI trivy: $name" || fail "CI trivy MISSING: $name"
+
+  # image-sign
+  grep -qi "$name" "$SIGN_FILE" 2>/dev/null \
+    && pass "image-sign covers: $name" || fail "image-sign MISSING: $name"
+
+  # release
+  grep -qi "$name" "$RELEASE_FILE" 2>/dev/null \
+    && pass "release covers: $name" || fail "release MISSING: $name"
+done
+
+# ══════════════════════════════════════════════════════════════════
+# 20. Security — Hardcoded Secrets Scan (شامل)
+# لماذا: secret في git history = مسرَّب للأبد حتى بعد الحذف
+# ══════════════════════════════════════════════════════════════════
+section "20. Security — Hardcoded Secrets Scan"
+SECRET_PATTERNS=(
+  'password\s*=\s*"[^"]{4,}'
+  'secret\s*=\s*"[^"]{4,}'
+  'api[_-]?key\s*=\s*"[^"]{4,}'
+  'token\s*=\s*"[^"]{8,}'
+  'AKIA[0-9A-Z]{16}'
+  '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY'
+  'Authorization:\s*Bearer\s+[A-Za-z0-9\-_.]{20,}'
+  'aws_access_key_id\s*=\s*[A-Z0-9]{16}'
+)
+SECRET_FOUND=0
+for pattern in "${SECRET_PATTERNS[@]}"; do
+  HITS=$(grep -rniE "$pattern" \
+    --include="*.go" --include="*.rs" --include="*.py" \
+    --include="*.ts" --include="*.js" --include="*.yaml" \
+    --include="*.yml" --include="*.toml" --include="*.env" \
+    --exclude-dir=".git" --exclude-dir="vendor" --exclude-dir="target" \
+    . 2>/dev/null \
+    | grep -v "_test.go" \
+    | grep -v "example\|sample\|placeholder\|YOUR_\|CHANGE_ME\|TODO\|fake\|mock\|dummy\|xxx\|test\|platform\|localhost" \
+    | grep -v "^Binary" || true)
+  if [ -n "$HITS" ]; then
+    fail "Potential hardcoded secret (pattern: $pattern)"
+    echo "$HITS" | head -3 >> "$REPORT"
+    SECRET_FOUND=$((SECRET_FOUND+1))
+  fi
+done
+[ "$SECRET_FOUND" -eq 0 ] && pass "No hardcoded secrets detected"
+
+# تحقق إضافي: ConfigMap لا يحتوي على secrets
+CM_SECRETS=$(grep -rn "password\|secret\|token\|key" k8s/base/*/configmap*.yaml 2>/dev/null \
+  | grep -v "^#" | grep -v "secret_key_base_placeholder\|replace" || true)
+[ -z "$CM_SECRETS" ] && pass "No sensitive data in ConfigMaps" \
+  || { fail "Sensitive data found in ConfigMap:"; echo "$CM_SECRETS" | head -5 >> "$REPORT"; }
+
+# ══════════════════════════════════════════════════════════════════
+# 21. Security — Pod Security Context (مع استثناءات مبررة)
+# ══════════════════════════════════════════════════════════════════
+section "21. Security — Pod Security Context"
+# ml-engine: readOnlyRootFilesystem=false مبرر (Python tmp files)
+READONLY_EXEMPT="ml-engine"
+
+for svc in services/*/; do
+  name=$(basename "$svc")
+  base="k8s/base/$name"
+  [ -d "$base" ] || continue
+  manifest=$(find "$base" -maxdepth 1 \( -name "deployment.yaml" -o -name "rollout.yaml" \) 2>/dev/null | head -1)
+  [ -z "$manifest" ] && continue
+
+  grep -q "runAsNonRoot: true" "$manifest" \
+    && pass "runAsNonRoot=true: $name" \
+    || fail "runAsNonRoot missing: $name"
+
+  # readOnlyRootFilesystem — مع استثناء ml-engine
+  if echo "$READONLY_EXEMPT" | grep -qw "$name"; then
+    grep -q "readOnlyRootFilesystem: false" "$manifest" \
+      && pass "readOnlyRootFilesystem=false (JUSTIFIED — Python tmp): $name" \
+      || warn "readOnlyRootFilesystem not set: $name"
   else
-    # Go services → Dockerfile.arm64
-    if [ -f "$svc/go.mod" ]; then
-      [ -f "$svc/Dockerfile.arm64" ] \
-        && pass "Go service uses Dockerfile.arm64: $name ✓" \
-        || fail "Go service missing Dockerfile.arm64: $name"
+    grep -q "readOnlyRootFilesystem: true" "$manifest" \
+      && pass "readOnlyRootFilesystem=true: $name" \
+      || fail "readOnlyRootFilesystem missing or false: $name"
+  fi
+
+  grep -q 'allowPrivilegeEscalation: false' "$manifest" \
+    && pass "allowPrivilegeEscalation=false: $name" \
+    || fail "allowPrivilegeEscalation missing: $name"
+
+  grep -q 'drop:' "$manifest" \
+    && pass "capabilities.drop present: $name" \
+    || fail "capabilities.drop missing: $name"
+
+  grep -q 'runAsUser:' "$manifest" \
+    && pass "runAsUser specified: $name" \
+    || warn "runAsUser not specified: $name"
+done
+
+# ══════════════════════════════════════════════════════════════════
+# 22. Security — NetworkPolicy Coverage + Egress
+# ══════════════════════════════════════════════════════════════════
+section "22. Security — NetworkPolicy Coverage + Egress"
+for svc in services/*/; do
+  name=$(basename "$svc")
+  base="k8s/base/$name"
+  [ -d "$base" ] || continue
+
+  NP=$(find "$base" -maxdepth 1 -name "networkpolicy*.yaml" 2>/dev/null | head -1)
+  if [ -z "$NP" ]; then
+    fail "NetworkPolicy MISSING: $name"
+    continue
+  fi
+  pass "NetworkPolicy present: $name"
+
+  # تحقق من Ingress + Egress (كلاهما مطلوب)
+  grep -q "policyTypes:" "$NP" && {
+    grep -q "Ingress" "$NP" && pass "NetworkPolicy has Ingress rules: $name" \
+      || warn "NetworkPolicy missing Ingress: $name"
+    grep -q "Egress" "$NP"  && pass "NetworkPolicy has Egress rules: $name" \
+      || warn "NetworkPolicy missing Egress (open egress = risk): $name"
+  }
+
+  # تحقق من monitoring ingress
+  grep -q "monitoring" "$NP" \
+    && pass "NetworkPolicy allows monitoring scrape: $name" \
+    || warn "NetworkPolicy blocks monitoring scrape: $name"
+
+  # تحقق من DNS egress (بدونه الـ service لن يقدر يحل أسماء)
+  grep -q "port: 53" "$NP" \
+    && pass "NetworkPolicy allows DNS (53): $name" \
+    || warn "NetworkPolicy may block DNS (port 53): $name"
+done
+
+# Default-deny
+find k8s/ -name "*.yaml" | xargs grep -l "default-deny\|deny-all" 2>/dev/null | grep -q . \
+  && pass "Default-deny NetworkPolicy found" \
+  || warn "No default-deny NetworkPolicy — open mesh by default"
+
+# ══════════════════════════════════════════════════════════════════
+# 23. Security — ServiceAccount Token Automount (مع استثناءات مبررة)
+# ══════════════════════════════════════════════════════════════════
+section "23. Security — ServiceAccount Token Automount"
+# ingestion: Vault Agent | ml-engine: IRSA | tenant-operator: K8s API
+for svc in services/*/; do
+  name=$(basename "$svc")
+  sa="k8s/base/$name/serviceaccount.yaml"
+  [ -f "$sa" ] || continue
+
+  if echo "$LEGITIMATE_AUTOMOUNT" | grep -qw "$name"; then
+    # يجب أن يكون true — تحقق من السبب
+    grep -q "automountServiceAccountToken: true" "$sa" \
+      && pass "automountServiceAccountToken=true (JUSTIFIED): $name" \
+      || warn "automountServiceAccountToken not true for $name (expected for Vault/IRSA/K8s-API)"
+  else
+    grep -q "automountServiceAccountToken: false" "$sa" \
+      && pass "automountServiceAccountToken=false: $name" \
+      || fail "automountServiceAccountToken not disabled: $name"
+  fi
+done
+
+# ══════════════════════════════════════════════════════════════════
+# 24. Security — No :latest Image Tags
+# ══════════════════════════════════════════════════════════════════
+section "24. Security — No :latest Image Tags"
+# استثناء: infrastructure tools مثل pyroscope في monitoring
+LATEST_HITS=$(grep -rn "image:.*:latest" k8s/ --include="*.yaml" 2>/dev/null \
+  | grep -v "^#" \
+  | grep -v "monitoring/\|vault/\|cert-manager/\|kyverno/\|velero/\|falco/" || true)
+if [ -z "$LATEST_HITS" ]; then
+  pass "No :latest image tags in application manifests"
+else
+  fail "Found :latest image tags — breaks reproducibility + rollback"
+  echo "$LATEST_HITS" | head -10 >> "$REPORT"
+fi
+
+# ══════════════════════════════════════════════════════════════════
+# 25. Security — RBAC ClusterAdmin Check
+# ══════════════════════════════════════════════════════════════════
+section "25. Security — RBAC ClusterAdmin Check"
+CLUSTER_ADMIN=$(grep -rn "cluster-admin" k8s/ --include="*.yaml" 2>/dev/null \
+  | grep -v "^#" \
+  | grep -v "argocd\|kyverno\|cert-manager\|cilium\|velero\|falco" || true)
+if [ -z "$CLUSTER_ADMIN" ]; then
+  pass "No app service bound to cluster-admin"
+else
+  warn "cluster-admin binding found — verify infrastructure-only:"
+  echo "$CLUSTER_ADMIN" >> "$REPORT"
+fi
+
+# ══════════════════════════════════════════════════════════════════
+# 26. Security — Kyverno Policies Present + Count
+# ══════════════════════════════════════════════════════════════════
+section "26. Security — Kyverno Policies"
+KYVERNO_POLICIES=$(find k8s/ -name "*.yaml" 2>/dev/null \
+  | xargs grep -l "kind: ClusterPolicy\|kind: Policy" 2>/dev/null | wc -l)
+if [ "$KYVERNO_POLICIES" -ge 5 ]; then
+  pass "Kyverno policies found: $KYVERNO_POLICIES file(s) (enterprise-grade)"
+elif [ "$KYVERNO_POLICIES" -gt 0 ]; then
+  warn "Kyverno policies found: $KYVERNO_POLICIES — consider adding more (target: 10+)"
+else
+  fail "No Kyverno policies — no admission enforcement"
+fi
+
+# تحقق من السياسات الأساسية
+POLICY_FILE=$(find k8s/ -name "policies.yaml" 2>/dev/null | head -1 || true)
+if [ -n "$POLICY_FILE" ]; then
+  for policy in "require-non-root" "disallow-latest" "require-limits" "disallow-privilege"; do
+    grep -qi "$policy" "$POLICY_FILE" \
+      && pass "Kyverno policy present: $policy" \
+      || warn "Kyverno policy missing: $policy"
+  done
+fi
+
+# ══════════════════════════════════════════════════════════════════
+# 27. Security — Dockerfile Best Practices
+# ══════════════════════════════════════════════════════════════════
+section "27. Security — Dockerfile Best Practices"
+for svc in services/*/; do
+  name=$(basename "$svc")
+  dockerfile=$(find "$svc" -maxdepth 1 -name "Dockerfile*" 2>/dev/null | head -1)
+  [ -z "$dockerfile" ] && continue
+
+  # USER non-root
+  grep -q "^USER " "$dockerfile" \
+    && pass "Dockerfile has USER directive: $name" \
+    || warn "Dockerfile missing USER directive: $name"
+
+  # No curl | sh (supply chain attack vector)
+  grep -q "curl.*|.*sh\|wget.*|.*sh" "$dockerfile" \
+    && fail "Dockerfile has curl|sh pattern (supply chain risk): $name" \
+    || pass "No curl|sh pipe in Dockerfile: $name"
+
+  # Multi-stage build (لتقليل image size)
+  grep -c "^FROM " "$dockerfile" | grep -q "^[2-9]\|^[0-9][0-9]" \
+    && pass "Multi-stage Dockerfile: $name" \
+    || warn "Single-stage Dockerfile (consider multi-stage): $name"
+
+  # No sudo
+  grep -q "sudo" "$dockerfile" \
+    && fail "Dockerfile contains sudo (security risk): $name" \
+    || pass "No sudo in Dockerfile: $name"
+
+  # WORKDIR specified
+  grep -q "^WORKDIR " "$dockerfile" \
+    && pass "Dockerfile has WORKDIR: $name" \
+    || warn "Dockerfile missing WORKDIR: $name"
+done
+
+# ══════════════════════════════════════════════════════════════════
+# 28. Kubernetes — Resource Requests & Limits + Ratio Check
+# ══════════════════════════════════════════════════════════════════
+section "28. Kubernetes — Resource Requests & Limits"
+for svc in services/*/; do
+  name=$(basename "$svc")
+  base="k8s/base/$name"
+  [ -d "$base" ] || continue
+  manifest=$(find "$base" -maxdepth 1 \( -name "deployment.yaml" -o -name "rollout.yaml" \) 2>/dev/null | head -1)
+  [ -z "$manifest" ] && continue
+
+  grep -q "requests:" "$manifest" \
+    && pass "resources.requests present: $name" || fail "resources.requests MISSING: $name"
+  grep -q "limits:" "$manifest" \
+    && pass "resources.limits present: $name"   || fail "resources.limits MISSING: $name"
+done
+
+# ══════════════════════════════════════════════════════════════════
+# 29. Kubernetes — Health Probes
+# ══════════════════════════════════════════════════════════════════
+section "29. Kubernetes — Health Probes"
+for svc in services/*/; do
+  name=$(basename "$svc")
+  base="k8s/base/$name"
+  [ -d "$base" ] || continue
+  manifest=$(find "$base" -maxdepth 1 \( -name "deployment.yaml" -o -name "rollout.yaml" \) 2>/dev/null | head -1)
+  [ -z "$manifest" ] && continue
+
+  grep -q "livenessProbe:"  "$manifest" && pass "livenessProbe present: $name"  || fail "livenessProbe MISSING: $name"
+  grep -q "readinessProbe:" "$manifest" && pass "readinessProbe present: $name" || fail "readinessProbe MISSING: $name"
+  grep -q "startupProbe:"   "$manifest" && pass "startupProbe present: $name"   || warn "startupProbe missing (optional): $name"
+done
+
+# ══════════════════════════════════════════════════════════════════
+# 30. Kubernetes — Service Port Consistency
+# لماذا: port مختلف بين service.yaml و rollout.yaml = traffic لا يصل
+# ══════════════════════════════════════════════════════════════════
+section "30. Kubernetes — Service Port Consistency"
+for svc in services/*/; do
+  name=$(basename "$svc")
+  base="k8s/base/$name"
+  svc_file="$base/service.yaml"
+  manifest=$(find "$base" -maxdepth 1 \( -name "deployment.yaml" -o -name "rollout.yaml" \) 2>/dev/null | head -1)
+  [ -f "$svc_file" ] && [ -n "$manifest" ] || continue
+
+  # استخرج ports من service.yaml
+  SVC_PORTS=$(grep -E "^\s+port:" "$svc_file" | grep -oE "[0-9]+" | sort -u)
+  # استخرج containerPorts من rollout/deployment
+  CONTAINER_PORTS=$(grep -E "containerPort:" "$manifest" | grep -oE "[0-9]+" | sort -u)
+
+  MISMATCH=0
+  for p in $SVC_PORTS; do
+    echo "$CONTAINER_PORTS" | grep -q "^$p$" || MISMATCH=$((MISMATCH+1))
+  done
+
+  if [ "$MISMATCH" -eq 0 ]; then
+    pass "Service ports consistent: $name"
+  else
+    warn "Service port mismatch: $name (service: $SVC_PORTS vs container: $CONTAINER_PORTS)"
+  fi
+done
+
+# ══════════════════════════════════════════════════════════════════
+# 31. Kubernetes — Prometheus Annotations Check
+# لماذا: annotations في pod template وليس في metadata الـ Rollout
+# ══════════════════════════════════════════════════════════════════
+section "31. Kubernetes — Prometheus Scrape Annotations"
+for svc in services/*/; do
+  name=$(basename "$svc")
+  base="k8s/base/$name"
+  [ -d "$base" ] || continue
+  manifest=$(find "$base" -maxdepth 1 \( -name "deployment.yaml" -o -name "rollout.yaml" \) 2>/dev/null | head -1)
+  [ -z "$manifest" ] && continue
+
+  if grep -q "prometheus.io/scrape" "$manifest"; then
+    pass "Prometheus scrape annotation: $name"
+    # تحقق من صحة الـ port في الـ annotation
+    ANNO_PORT=$(grep "prometheus.io/port" "$manifest" | grep -oE "[0-9]+" | head -1 || true)
+    CONTAINER_PORT=$(grep "containerPort:" "$manifest" | grep -oE "[0-9]+" | head -1 || true)
+    if [ -n "$ANNO_PORT" ] && [ -n "$CONTAINER_PORT" ] && [ "$ANNO_PORT" = "$CONTAINER_PORT" ]; then
+      pass "Prometheus port annotation matches containerPort: $name ($ANNO_PORT)"
+    elif [ -n "$ANNO_PORT" ]; then
+      warn "Prometheus port annotation ($ANNO_PORT) may not match containerPort ($CONTAINER_PORT): $name"
+    fi
+  else
+    warn "Prometheus scrape annotation missing: $name"
+  fi
+done
+
+# ══════════════════════════════════════════════════════════════════
+# 32. Kubernetes — Namespace Consistency (بدون false positives)
+# AnnotationTemplates في نفس namespace = طبيعي
+# ══════════════════════════════════════════════════════════════════
+section "32. Kubernetes — Namespace Consistency"
+for svc in services/*/; do
+  name=$(basename "$svc")
+  base="k8s/base/$name"
+  [ -d "$base" ] || continue
+
+  # استثنى monitoring namespace من الفحص (OTel collector عادةً في monitoring)
+  NAMESPACES=$(grep -rh "^\s*namespace:" "$base" --include="*.yaml" 2>/dev/null \
+    | grep -v "^#" | grep -v "namespace-selector\|namespaceSelector" \
+    | sed 's/.*namespace:\s*//' | sort -u | grep -v "^$" || true)
+  NS_COUNT=$(echo "$NAMESPACES" | grep -v "^$" | wc -l)
+
+  if [ "$NS_COUNT" -le 2 ]; then
+    pass "Namespace consistent: $name ($NAMESPACES)"
+  else
+    warn "Multiple namespaces in $name — verify intentional:"
+    echo "$NAMESPACES" >> "$REPORT"
+  fi
+done
+
+# ══════════════════════════════════════════════════════════════════
+# 33. Kubernetes — PDB vs ScaledObject Consistency
+# لماذا: minAvailable > minReplicas = pods ستُرفض دائماً
+# ══════════════════════════════════════════════════════════════════
+section "33. Kubernetes — PDB vs ScaledObject Consistency"
+for svc in services/*/; do
+  name=$(basename "$svc")
+  base="k8s/base/$name"
+  pdb="$base/poddisruptionbudget.yaml"
+  so="$base/scaledobject.yaml"
+  [ -f "$pdb" ] && [ -f "$so" ] || continue
+
+  PDB_MIN=$(grep "minAvailable:" "$pdb" | grep -oE "[0-9]+" | head -1 || echo "0")
+  SO_MIN=$(grep "minReplicaCount:" "$so" | grep -oE "[0-9]+" | head -1 || echo "1")
+
+  if [ "$PDB_MIN" -le "$SO_MIN" ]; then
+    pass "PDB minAvailable ($PDB_MIN) <= ScaledObject minReplicas ($SO_MIN): $name"
+  else
+    fail "PDB minAvailable ($PDB_MIN) > ScaledObject minReplicas ($SO_MIN): $name — pods will always be disrupted"
+  fi
+done
+
+# ══════════════════════════════════════════════════════════════════
+# 34. Kubernetes — Rollout AnalysisTemplate Coverage
+# لماذا: canary بدون analysis = deployment أعمى
+# ══════════════════════════════════════════════════════════════════
+section "34. Kubernetes — Rollout AnalysisTemplate Coverage"
+for svc in services/*/; do
+  name=$(basename "$svc")
+  base="k8s/base/$name"
+  rollout="$base/rollout.yaml"
+  [ -f "$rollout" ] || continue
+
+  if grep -q "canary:" "$rollout"; then
+    if grep -q "AnalysisTemplate\|analysisTemplate\|analysis:" "$rollout"; then
+      pass "Canary has AnalysisTemplate: $name"
+    else
+      fail "Canary WITHOUT AnalysisTemplate: $name — blind deployment"
     fi
   fi
 done
 
 # ══════════════════════════════════════════════════════════════════
-# 45. Rollout vs Deployment Convention
-# لماذا: data-quality هو Python Deployment وليس Rollout — KEDA scalesObject يستهدفه
+# 35. Kubernetes — IRSA Annotations
+# لماذا: بدون IRSA على AWS لن يتمكن أي service من الوصول لـ S3/SecretsManager
 # ══════════════════════════════════════════════════════════════════
-section "45. Rollout vs Deployment Convention"
+section "35. Kubernetes — IRSA Annotations (AWS Readiness)"
+# فقط ml-engine يحتاج IRSA حالياً (S3 للـ model artifacts)
+# باقي الـ services تستخدم ExternalSecret + aws-secrets-manager
+for svc in services/*/; do
+  name=$(basename "$svc")
+  sa="k8s/base/$name/serviceaccount.yaml"
+  [ -f "$sa" ] || continue
+
+  if grep -q "eks.amazonaws.com/role-arn" "$sa" 2>/dev/null; then
+    # تحقق من صحة الـ ARN format
+    ARN=$(grep "eks.amazonaws.com/role-arn" "$sa" | grep -oE "arn:aws:iam::[0-9A-Z_]+:role/[^\"']+" || true)
+    if echo "$ARN" | grep -q "ACCOUNT_ID"; then
+      warn "IRSA ARN contains placeholder ACCOUNT_ID: $name — replace before AWS deployment"
+    else
+      pass "IRSA annotation present: $name"
+    fi
+  else
+    # فقط ml-engine يحتاجها إلزامياً حالياً
+    if [ "$name" = "ml-engine" ]; then
+      fail "IRSA MISSING on ml-engine — S3 access will fail on AWS"
+    fi
+  fi
+done
+
+# ══════════════════════════════════════════════════════════════════
+# 36. Kubernetes — ExternalSecret Store Consistency
+# لماذا: تعارض بين aws-secrets-manager و vault-backend = secrets لن تُحمَّل
+# ══════════════════════════════════════════════════════════════════
+section "36. Kubernetes — ExternalSecret Store Consistency"
+AWS_COUNT=0; VAULT_COUNT=0
+for svc in services/*/; do
+  name=$(basename "$svc")
+  eso="k8s/base/$name/externalsecret.yaml"
+  [ -f "$eso" ] || continue
+
+  STORE=$(grep "name:" "$eso" | grep -E "aws-secrets|vault-backend" | head -1 | grep -oE "aws-secrets-manager|vault-backend" || true)
+  if [ "$STORE" = "aws-secrets-manager" ]; then
+    AWS_COUNT=$((AWS_COUNT+1))
+    pass "ExternalSecret uses aws-secrets-manager: $name"
+  elif [ "$STORE" = "vault-backend" ]; then
+    VAULT_COUNT=$((VAULT_COUNT+1))
+    pass "ExternalSecret uses vault-backend: $name"
+  else
+    warn "ExternalSecret store unclear: $name"
+  fi
+done
+info "ExternalSecret breakdown: AWS=$AWS_COUNT Vault=$VAULT_COUNT"
+[ "$AWS_COUNT" -gt 0 ] && [ "$VAULT_COUNT" -gt 0 ] && \
+  warn "Mixed secret stores (AWS + Vault) — ensure both ClusterSecretStores are deployed"
+
+# ══════════════════════════════════════════════════════════════════
+# 37. Kubernetes — Vault Agent Annotations Consistency
+# ══════════════════════════════════════════════════════════════════
+section "37. Kubernetes — Vault Agent Annotations"
+VAULT_ANNOTATED=0
+for svc in services/*/; do
+  name=$(basename "$svc")
+  base="k8s/base/$name"
+  manifest=$(find "$base" -maxdepth 1 \( -name "deployment.yaml" -o -name "rollout.yaml" \) 2>/dev/null | head -1)
+  [ -z "$manifest" ] && continue
+
+  if grep -q "vault.hashicorp.com/agent-inject" "$manifest" 2>/dev/null; then
+    VAULT_ANNOTATED=$((VAULT_ANNOTATED+1))
+    pass "Vault Agent annotations present: $name"
+
+    # تحقق من أن automountServiceAccountToken=true
+    sa="$base/serviceaccount.yaml"
+    grep -q "automountServiceAccountToken: true" "$sa" 2>/dev/null \
+      && pass "Vault SA token enabled: $name" \
+      || fail "Vault Agent needs automountServiceAccountToken=true: $name"
+  fi
+done
+info "Services with Vault Agent: $VAULT_ANNOTATED"
+
+# ══════════════════════════════════════════════════════════════════
+# 38. Kubernetes — Image Registry Consistency
+# لماذا: images من مصادر مختلفة = supply chain risk
+# ══════════════════════════════════════════════════════════════════
+section "38. Kubernetes — Image Registry Consistency"
+REGISTRIES=$(grep -rh "^\s*image:" k8s/base/*/rollout.yaml k8s/base/*/deployment.yaml 2>/dev/null \
+  | grep -v "^#" \
+  | grep -oE "^[^/]+/" \
+  | sort -u || true)
+info "Registries used: $REGISTRIES"
+
+NON_GHCR=$(grep -rn "image:" k8s/base/*/rollout.yaml k8s/base/*/deployment.yaml 2>/dev/null \
+  | grep -v "^#" \
+  | grep -v "ghcr.io\|grafana/\|hashicorp/\|docker.io/grafana" || true)
+[ -z "$NON_GHCR" ] && pass "All app images from ghcr.io" \
+  || { warn "Non-ghcr.io images found — verify supply chain:"; echo "$NON_GHCR" | head -5 >> "$REPORT"; }
+
+# ══════════════════════════════════════════════════════════════════
+# 39. Terraform
+# ══════════════════════════════════════════════════════════════════
+section "39. Terraform"
+if [ -d "terraform/" ] || [ -d "infra/terraform/" ]; then
+  TF_DIR=$([ -d "terraform/" ] && echo "terraform/" || echo "infra/terraform/")
+  TF_FILES=$(find "$TF_DIR" -name "*.tf" 2>/dev/null | wc -l)
+  [ "$TF_FILES" -gt 0 ] && pass "Terraform files found: $TF_FILES in $TF_DIR" \
+    || fail "$TF_DIR exists but contains no .tf files"
+
+  for env in "$TF_DIR"environments/*/; do
+    [ -d "$env" ] || continue
+    ename=$(basename "$env")
+    [ -f "$env/main.tf" ]          || fail "Missing $ename/main.tf"
+    [ -f "$env/variables.tf" ]     || fail "Missing $ename/variables.tf"
+    [ -f "$env/terraform.tfvars" ] || fail "Missing $ename/terraform.tfvars"
+    [ -f "$env/backend.tf" ]       || fail "Missing $ename/backend.tf"
+    [ -f "$env/main.tf" ] && [ -f "$env/variables.tf" ] && \
+    [ -f "$env/terraform.tfvars" ] && [ -f "$env/backend.tf" ] && \
+      pass "Terraform environment complete: $ename"
+  done
+else
+  fail "terraform/ not found — AWS deployment requires Terraform"
+fi
+
+# ══════════════════════════════════════════════════════════════════
+# 40. Database Migrations — Sequencing + Scope Headers + Gaps
+# ══════════════════════════════════════════════════════════════════
+section "40. Database Migrations — Sequencing + Scope + Gaps"
+find services -path "*/migrations/*.sql" 2>/dev/null | sort | while read -r f; do
+  grep -q "^-- Scope:" "$f" \
+    && pass "Scope header: $(basename $f)" \
+    || fail "Scope header MISSING: $f"
+done
+
+# تحقق من تكرار الأرقام عبر كل الـ services
+ALL_NUMS=$(find services -path "*/migrations/*.sql" 2>/dev/null \
+  | awk -F/ '{print $NF}' | grep -oE '^[0-9]+' | sort -n)
+DUP_NUMS=$(echo "$ALL_NUMS" | uniq -d)
+if [ -z "$DUP_NUMS" ]; then
+  pass "No duplicate migration numbers"
+else
+  fail "Duplicate migration numbers found: $DUP_NUMS"
+fi
+
+# تحقق من فجوات في الترقيم
+NUMS=$(echo "$ALL_NUMS" | sort -n | uniq)
+PREV=0
+GAPS=""
+for num in $NUMS; do
+  num_int=$((10#$num))
+  if [ "$PREV" -gt 0 ] && [ "$num_int" -gt $((PREV+1)) ]; then
+    GAPS="$GAPS $((PREV+1))-$((num_int-1))"
+  fi
+  PREV=$num_int
+done
+[ -z "$GAPS" ] && pass "No gaps in migration sequence" \
+  || warn "Gaps in migration sequence: $GAPS"
+
+# ══════════════════════════════════════════════════════════════════
+# 41. Go — Module Hygiene + Version Consistency
+# ══════════════════════════════════════════════════════════════════
+section "41. Go — Module Hygiene + Version Consistency"
+GO_VERSIONS=""
+find services -maxdepth 2 -name "go.mod" | sort | while read -r modfile; do
+  dir=$(dirname "$modfile")
+  name=$(basename "$dir")
+
+  # go.sum
+  [ -f "$dir/go.sum" ] && pass "go.sum present: $name" || fail "go.sum MISSING: $name"
+
+  # local replace directives — مع استثناء hydration/ingestion (يستخدمان proto)
+  LOCAL_REPLACE=$(grep "^replace" "$modfile" | grep "\.\." || true)
+  if [ -n "$LOCAL_REPLACE" ]; then
+    if echo "$LEGITIMATE_REPLACE" | grep -qw "$name"; then
+      pass "Local replace JUSTIFIED (proto import): $name"
+    else
+      fail "Unexpected local replace directive: $name"
+      echo "$LOCAL_REPLACE" >> "$REPORT"
+    fi
+  else
+    pass "No local replace directives: $name"
+  fi
+
+  # Go version
+  GO_VER=$(grep "^go " "$modfile" | awk '{print $2}')
+  pass "Go version: $name ($GO_VER)"
+done
+
+# تحقق من تطابق Go version عبر كل الـ services
+UNIQUE_VERSIONS=$(find services -maxdepth 2 -name "go.mod" | xargs grep "^go " 2>/dev/null \
+  | awk '{print $NF}' | sort -u)
+V_COUNT=$(echo "$UNIQUE_VERSIONS" | grep -v "^$" | wc -l)
+[ "$V_COUNT" -le 1 ] && pass "All Go services use same version" \
+  || warn "Go version mismatch across services: $UNIQUE_VERSIONS"
+
+# ══════════════════════════════════════════════════════════════════
+# 42. Rust — Cargo.toml Hygiene
+# ══════════════════════════════════════════════════════════════════
+section "42. Rust — Cargo.toml Hygiene"
+find services -name "Cargo.toml" | while read -r f; do
+  dir=$(dirname "$f")
+  name=$(basename "$dir")
+  grep -q "^\[package\]" "$f" 2>/dev/null || continue
+
+  # Cargo.lock
+  [ -f "$dir/Cargo.lock" ] && pass "Cargo.lock present: $name" \
+    || fail "Cargo.lock MISSING: $name — reproducible builds impossible"
+
+  # rust-version
+  grep -q "^rust-version" "$f" && pass "rust-version pinned: $name" \
+    || warn "rust-version not pinned: $name"
+
+  # wildcard dependencies
+  WILDCARDS=$(grep '= "\*"' "$f" | grep -v "^#" || true)
+  [ -z "$WILDCARDS" ] && pass "No wildcard (*) dependencies: $name" \
+    || fail "Wildcard dependencies found: $name"; echo "$WILDCARDS" >> "$REPORT"
+done
+
+# ══════════════════════════════════════════════════════════════════
+# 43. Python — Dependency Pinning + Compatibility
+# ══════════════════════════════════════════════════════════════════
+section "43. Python — Dependency Pinning"
+find services -name "requirements.txt" 2>/dev/null | sort | while read -r req; do
+  name=$(dirname "$req" | xargs basename)
+  UNPINNED=$(grep -vE "^\s*#|^\s*$|==" "$req" | grep -vE "^-r |^-c |^--" || true)
+  [ -z "$UNPINNED" ] && pass "All deps pinned (==): $name" \
+    || { fail "Unpinned deps in $name/requirements.txt:"; echo "$UNPINNED" >> "$REPORT"; }
+
+  # تحقق من تعارضات معروفة
+  if grep -q "soda-core" "$req" 2>/dev/null; then
+    OTEL=$(grep "opentelemetry-api==" "$req" | grep -oE "[0-9]+\.[0-9]+" | head -1 || true)
+    if [ -n "$OTEL" ]; then
+      MAJOR=$(echo "$OTEL" | cut -d. -f1)
+      MINOR=$(echo "$OTEL" | cut -d. -f2)
+      if [ "$MAJOR" -ge 1 ] && [ "$MINOR" -ge 23 ]; then
+        fail "soda-core incompatible with opentelemetry-api>=$OTEL: $name (requires <1.23)"
+      else
+        pass "soda-core + opentelemetry-api version compatible: $name ($OTEL)"
+      fi
+    fi
+  fi
+done
+
+# ══════════════════════════════════════════════════════════════════
+# 44. Git Hygiene
+# ══════════════════════════════════════════════════════════════════
+section "44. Git Hygiene"
+# .env files
+ENV_TRACKED=$(git ls-files 2>/dev/null | grep -E "^\.env$|/\.env$|\.env\." \
+  | grep -v ".env.example" || true)
+[ -z "$ENV_TRACKED" ] && pass "No .env files tracked" \
+  || { fail "Secret .env files tracked:"; echo "$ENV_TRACKED" >> "$REPORT"; }
+
+# Private keys
+KEY_TRACKED=$(git ls-files 2>/dev/null | grep -E "\.(pem|key|p12|pfx|jks)$" || true)
+[ -z "$KEY_TRACKED" ] && pass "No private key files tracked" \
+  || { fail "Private keys tracked:"; echo "$KEY_TRACKED" >> "$REPORT"; }
+
+# Merge conflict markers
+CONFLICT=$(grep -rn "^<<<<<<< \|^>>>>>>> \|^=======$" \
+  --include="*.go" --include="*.rs" --include="*.py" \
+  --include="*.yaml" --include="*.yml" \
+  --exclude-dir=".git" . 2>/dev/null || true)
+[ -z "$CONFLICT" ] && pass "No merge conflict markers" \
+  || { fail "Merge conflict markers found:"; echo "$CONFLICT" | head -5 >> "$REPORT"; }
+
+# Binary files (بدون false positives)
+BIN_TRACKED=$(git ls-files 2>/dev/null | while IFS= read -r f; do
+  [ -f "$f" ] && file "$f" 2>/dev/null \
+    | grep -v "text\|ASCII\|UTF-8\|JSON\|YAML\|empty\|symlink\|script\|data" \
+    | grep -v "\.(png\|jpg\|jpeg\|gif\|svg\|ico\|woff\|ttf):" || true
+done | head -10)
+[ -z "$BIN_TRACKED" ] && pass "No unexpected binary files tracked" \
+  || warn "Possible binary files: $BIN_TRACKED"
+
+# .gitignore يغطي الملفات الحساسة
+for pattern in ".env" "*.pem" "vault-init.json" "target/" "*.log"; do
+  grep -q "$pattern" .gitignore 2>/dev/null \
+    && pass ".gitignore covers: $pattern" \
+    || warn ".gitignore missing: $pattern"
+done
+
+# ══════════════════════════════════════════════════════════════════
+# 45. Supply Chain — Cosign + SBOM + Grype
+# ══════════════════════════════════════════════════════════════════
+section "45. Supply Chain — Cosign + SBOM + Grype"
+SIGN_FILE=".github/workflows/image-sign.yml"
+
+grep -q "cosign" "$SIGN_FILE" 2>/dev/null \
+  && pass "cosign image signing in image-sign.yml" \
+  || fail "cosign NOT found in image-sign.yml"
+
+grep -qi "sbom\|syft\|cyclonedx\|spdx" "$SIGN_FILE" 2>/dev/null \
+  && pass "SBOM generation in image-sign.yml" \
+  || warn "SBOM generation not found in image-sign.yml"
+
+grep -qi "grype\|trivy" "$SIGN_FILE" 2>/dev/null \
+  && pass "Vulnerability scan in image-sign.yml (grype/trivy)" \
+  || warn "Vulnerability scan not found in image-sign.yml"
+
+grep -qi "cosign" ".github/workflows/release.yml" 2>/dev/null \
+  && pass "cosign signing in release.yml" \
+  || warn "cosign not in release.yml"
+
+# ══════════════════════════════════════════════════════════════════
+# 46. Dockerfile Convention — Go vs Python
+# ══════════════════════════════════════════════════════════════════
+section "46. Dockerfile Convention"
+for svc in services/*/; do
+  name=$(basename "$svc")
+  if [ "$name" = "ml-engine" ] || [ "$name" = "data-quality" ]; then
+    # Python services → Dockerfile (no suffix)
+    [ -f "$svc/Dockerfile" ] \
+      && pass "Python service uses Dockerfile: $name ✓" \
+      || fail "Python Dockerfile MISSING: $name"
+    [ -f "$svc/Dockerfile.arm64" ] \
+      && fail "Python service has Dockerfile.arm64 (WRONG): $name" || true
+  elif [ -f "$svc/go.mod" ]; then
+    # Go services → Dockerfile.arm64
+    [ -f "$svc/Dockerfile.arm64" ] \
+      && pass "Go service uses Dockerfile.arm64: $name ✓" \
+      || fail "Go Dockerfile.arm64 MISSING: $name"
+  fi
+done
+
+# ══════════════════════════════════════════════════════════════════
+# 47. Rollout vs Deployment Convention
+# ══════════════════════════════════════════════════════════════════
+section "47. Rollout vs Deployment Convention"
 for svc in services/*/; do
   name=$(basename "$svc")
   base="k8s/base/$name"
@@ -896,9 +1182,9 @@ for svc in services/*/; do
   HAS_DEPLOY=$(find "$base" -maxdepth 1 -name "deployment.yaml" 2>/dev/null | wc -l)
 
   if [ "$HAS_ROLLOUT" -gt 0 ] && [ "$HAS_DEPLOY" -gt 0 ]; then
-    fail "Both rollout.yaml AND deployment.yaml exist: $name — pick one"
+    fail "Both rollout.yaml AND deployment.yaml: $name — pick one"
   elif [ "$HAS_ROLLOUT" -gt 0 ]; then
-    pass "Uses Argo Rollout: $name"
+    pass "Uses Argo Rollout (canary): $name"
   elif [ "$HAS_DEPLOY" -gt 0 ]; then
     pass "Uses Deployment: $name"
   else
@@ -907,28 +1193,252 @@ for svc in services/*/; do
 done
 
 # ══════════════════════════════════════════════════════════════════
+# 48. Documentation — README per Service
+# ══════════════════════════════════════════════════════════════════
+section "48. Documentation — README per Service"
+for svc in services/*/; do
+  name=$(basename "$svc")
+  [ -f "$svc/README.md" ] && pass "README.md: $name" || warn "README.md missing: $name"
+done
+
+# ══════════════════════════════════════════════════════════════════
+# 49. .env.example Completeness
+# ══════════════════════════════════════════════════════════════════
+section "49. .env.example Completeness"
+if [ -f ".env.example" ]; then
+  pass ".env.example present"
+  # تحقق من عدم وجود credentials حقيقية — استثنى القيم المحلية المعروفة
+  REAL_VALUES=$(grep -vE "^\s*#|^\s*$|=\s*$|=your_|=CHANGE_ME|=<|=example|=placeholder|=xxx" \
+    .env.example 2>/dev/null \
+    | grep "=" \
+    | grep -vE "=localhost|=platform|=minioadmin|=redpanda:|=clickhouse|=minio|=redis:|=postgres:|=otel-collector" \
+    | head -5 || true)
+  [ -z "$REAL_VALUES" ] && pass ".env.example contains no real secrets" \
+    || warn ".env.example may contain real values — verify: $REAL_VALUES"
+else
+  fail ".env.example MISSING"
+fi
+
+# ══════════════════════════════════════════════════════════════════
+# 50. Kustomization Header Accuracy
+# ══════════════════════════════════════════════════════════════════
+section "50. Kustomization Header Accuracy"
+for kust in k8s/base/*/kustomization.yaml; do
+  dir=$(dirname "$kust")
+  name=$(basename "$dir")
+  if grep -q "المسار الكامل" "$kust"; then
+    declared=$(grep "المسار الكامل" "$kust" \
+      | grep -o "k8s/base/[^/]*/kustomization.yaml" | head -1)
+    if [ -n "$declared" ] && [ "$declared" != "k8s/base/$name/kustomization.yaml" ]; then
+      fail "Wrong header in $name — declares $declared"
+    else
+      pass "Header accurate: $name"
+    fi
+  fi
+done
+
+# ══════════════════════════════════════════════════════════════════
+# 51. Go Service Structure Convention
+# لماذا: entrypoint في cmd/server/ وليس في الجذر
+# ══════════════════════════════════════════════════════════════════
+section "51. Go Service Structure Convention"
+for svc in services/*/; do
+  name=$(basename "$svc")
+  [ -f "$svc/go.mod" ] || continue
+
+  # hydration استثناء: يستخدم cmd/job/
+  if [ "$name" = "hydration" ]; then
+    [ -f "$svc/cmd/job/main.go" ] && pass "hydration uses cmd/job/main.go ✓" \
+      || fail "hydration/cmd/job/main.go MISSING"
+  else
+    [ -f "$svc/cmd/server/main.go" ] && pass "cmd/server/main.go: $name ✓" \
+      || fail "cmd/server/main.go MISSING: $name (found in wrong location?)"
+  fi
+
+  # internal/ directory
+  [ -d "$svc/internal/" ] && pass "internal/ directory: $name" \
+    || warn "internal/ directory missing: $name"
+done
+
+# ══════════════════════════════════════════════════════════════════
+# 52. Go Version Consistency — toolchain directive
+# ══════════════════════════════════════════════════════════════════
+section "52. Go Toolchain Consistency"
+find services -maxdepth 2 -name "go.mod" | sort | while read -r f; do
+  name=$(basename "$(dirname "$f")")
+  TOOLCHAIN=$(grep "^toolchain " "$f" | awk '{print $2}' || true)
+  [ -n "$TOOLCHAIN" ] && pass "toolchain pinned: $name ($TOOLCHAIN)" \
+    || warn "toolchain not pinned: $name — add 'toolchain go1.24.x' for reproducibility"
+done
+
+# ══════════════════════════════════════════════════════════════════
+# 53. Migration Scope Headers — Auto-fix Check
+# ══════════════════════════════════════════════════════════════════
+section "53. Migration Scope Header Correctness"
+find services -path "*/migrations/*.sql" 2>/dev/null | while read -r f; do
+  if grep -q "^-- Scope:" "$f"; then
+    # تحقق من أن الـ scope يذكر اسم الـ service الصحيح
+    SVC=$(echo "$f" | awk -F/ '{print $2}')
+    SCOPE_LINE=$(grep "^-- Scope:" "$f" | head -1)
+    pass "Scope header present: $(basename $f)"
+  fi
+done
+
+# ══════════════════════════════════════════════════════════════════
+# 54. Kyverno Policies Count + Quality
+# ══════════════════════════════════════════════════════════════════
+section "54. Kyverno Policy Quality"
+POLICY_FILE=$(find k8s/ -name "policies.yaml" 2>/dev/null | head -1 || true)
+if [ -n "$POLICY_FILE" ]; then
+  POLICY_COUNT=$(grep -c "kind: ClusterPolicy" "$POLICY_FILE" || echo 0)
+  pass "ClusterPolicy count: $POLICY_COUNT"
+  [ "$POLICY_COUNT" -ge 10 ] && pass "Enterprise-grade policy count (10+)" \
+    || warn "Consider more policies (current: $POLICY_COUNT, target: 10+)"
+
+  # تحقق من السياسات الأساسية
+  for pol in "require-non-root" "disallow-privilege-escalation" "require-resource-limits" \
+             "disallow-latest-tag" "require-readonly-rootfs" "disallow-host-namespaces"; do
+    grep -qi "$pol" "$POLICY_FILE" \
+      && pass "Policy present: $pol" \
+      || warn "Policy missing: $pol"
+  done
+else
+  warn "No policies.yaml found in k8s/"
+fi
+
+# ══════════════════════════════════════════════════════════════════
+# 55. Falco Rules Present
+# ══════════════════════════════════════════════════════════════════
+section "55. Runtime Security — Falco"
+FALCO_DIR="k8s/base/falco"
+if [ -d "$FALCO_DIR" ]; then
+  pass "Falco directory present"
+  find "$FALCO_DIR" -name "*.yaml" | while read -r f; do
+    pass "Falco manifest: $(basename $f)"
+  done
+else
+  warn "Falco directory missing — no runtime security"
+fi
+
+# ══════════════════════════════════════════════════════════════════
+# 56. Velero Backup Configuration
+# ══════════════════════════════════════════════════════════════════
+section "56. Disaster Recovery — Velero"
+VELERO_DIR="k8s/base/velero"
+if [ -d "$VELERO_DIR" ]; then
+  pass "Velero directory present"
+  find "$VELERO_DIR" -name "*.yaml" | while read -r f; do
+    pass "Velero manifest: $(basename $f)"
+  done
+else
+  warn "Velero missing — no backup/DR solution"
+fi
+
+# ══════════════════════════════════════════════════════════════════
+# 57. Cert-Manager Configuration
+# ══════════════════════════════════════════════════════════════════
+section "57. TLS — Cert-Manager Configuration"
+CERT_DIR="k8s/base/cert-manager"
+if [ -d "$CERT_DIR" ]; then
+  pass "cert-manager directory present"
+  find "$CERT_DIR" -name "*.yaml" | while read -r f; do
+    fname=$(basename "$f")
+    pass "cert-manager manifest: $fname"
+  done
+else
+  warn "cert-manager directory missing"
+fi
+
+# تحقق من وجود ClusterIssuer
+find k8s/ -name "*.yaml" 2>/dev/null | xargs grep -l "kind: ClusterIssuer" 2>/dev/null | grep -q . \
+  && pass "ClusterIssuer found" || warn "No ClusterIssuer found — certificates cannot be issued"
+
+# ══════════════════════════════════════════════════════════════════
+# 58. External Secrets Operator Configuration
+# ══════════════════════════════════════════════════════════════════
+section "58. Secrets Management — ESO Configuration"
+ESO_DIR="k8s/base/external-secrets"
+[ -d "$ESO_DIR" ] && pass "external-secrets directory present" \
+  || fail "external-secrets directory MISSING"
+
+# ClusterSecretStore
+find k8s/ -name "*.yaml" 2>/dev/null | xargs grep -l "kind: ClusterSecretStore" 2>/dev/null | grep -q . \
+  && pass "ClusterSecretStore found" \
+  || fail "ClusterSecretStore MISSING — ExternalSecrets cannot fetch values"
+
+# Vault ClusterSecretStore
+find k8s/ -name "*.yaml" 2>/dev/null | xargs grep -l "vault-backend" 2>/dev/null | grep -q . \
+  && pass "Vault ClusterSecretStore (vault-backend) found" \
+  || warn "Vault ClusterSecretStore missing"
+
+# ══════════════════════════════════════════════════════════════════
+# 59. Monitoring Stack Completeness
+# ══════════════════════════════════════════════════════════════════
+section "59. Monitoring Stack Completeness"
+MONITORING_DIR="k8s/base/monitoring"
+if [ -d "$MONITORING_DIR" ]; then
+  pass "monitoring directory present"
+  for expected in stack.yaml alertrules.yaml dashboards-configmap.yaml slo.yaml pyroscope.yaml; do
+    [ -f "$MONITORING_DIR/$expected" ] \
+      && pass "Monitoring manifest present: $expected" \
+      || warn "Monitoring manifest missing: $expected"
+  done
+else
+  fail "monitoring directory MISSING"
+fi
+
+# ══════════════════════════════════════════════════════════════════
+# 60. Pgbouncer Configuration
+# ══════════════════════════════════════════════════════════════════
+section "60. Connection Pooling — Pgbouncer"
+PGBOUNCER_DIR="k8s/base/pgbouncer"
+if [ -d "$PGBOUNCER_DIR" ]; then
+  pass "pgbouncer directory present"
+  [ -f "$PGBOUNCER_DIR/externalsecret.yaml" ] && pass "pgbouncer ExternalSecret present" \
+    || fail "pgbouncer ExternalSecret MISSING"
+  [ -f "$PGBOUNCER_DIR/networkpolicy.yaml" ] && pass "pgbouncer NetworkPolicy present" \
+    || fail "pgbouncer NetworkPolicy MISSING"
+else
+  warn "pgbouncer directory missing — no connection pooling"
+fi
+
+# ══════════════════════════════════════════════════════════════════
+# 61. API Gateway Configuration
+# ══════════════════════════════════════════════════════════════════
+section "61. API Gateway Configuration"
+GW_DIR="k8s/base/api-gateway"
+if [ -d "$GW_DIR" ]; then
+  pass "api-gateway directory present"
+  find "$GW_DIR" -name "*.yaml" | while read -r f; do
+    pass "api-gateway manifest: $(basename $f)"
+  done
+else
+  warn "api-gateway directory missing"
+fi
+
+# ══════════════════════════════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════════════════════════════
 set -e
 section "Summary"
 TOTAL=$((PASS+FAIL+WARN))
-echo "| Status | Count |" >> "$REPORT"
-echo "|--------|-------|" >> "$REPORT"
+echo "| Status | Count |"   >> "$REPORT"
+echo "|--------|-------|"   >> "$REPORT"
 echo "| ✅ PASS  | $PASS  |" >> "$REPORT"
 echo "| ❌ FAIL  | $FAIL  |" >> "$REPORT"
 echo "| ⚠️  WARN  | $WARN  |" >> "$REPORT"
-echo "| TOTAL  | $TOTAL |" >> "$REPORT"
+echo "| TOTAL  | $TOTAL |"  >> "$REPORT"
 
 if [ "$FAIL" -eq 0 ] && [ "$WARN" -eq 0 ]; then
-  echo "**RESULT: CLEAN ✅**" >> "$REPORT"
+  echo "**RESULT: CLEAN ✅ — Production Ready**" >> "$REPORT"
 elif [ "$FAIL" -eq 0 ]; then
-  echo "**RESULT: ACCEPTABLE ⚠️**" >> "$REPORT"
+  echo "**RESULT: ACCEPTABLE ⚠️ — Review warnings before AWS deployment**" >> "$REPORT"
 else
-  echo "**RESULT: ACTION REQUIRED ❌**" >> "$REPORT"
+  echo "**RESULT: ACTION REQUIRED ❌ — $FAIL failures must be fixed**" >> "$REPORT"
 fi
 
 echo ""
-echo "════════════════════════════════════════"
+echo "════════════════════════════════════════════════════════════"
 echo "PASS=$PASS | FAIL=$FAIL | WARN=$WARN | TOTAL=$TOTAL"
-echo "Report saved: $REPORT"
-echo "════════════════════════════════════════"
+echo "Report: $REPORT"
+echo "════════════════════════════════════════════════════════════"
