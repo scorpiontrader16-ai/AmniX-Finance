@@ -77,4 +77,3 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/scorpiontrader16-ai/youtuop-1 => ../../
