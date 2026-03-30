@@ -1,3 +1,7 @@
+-- ============================================================
+-- services/auth/internal/postgres/migrations/021_agent_identity.sql
+-- Scope: auth service database only — independent migration sequence
+-- ============================================================
 -- ╔══════════════════════════════════════════════════════════════════╗
 -- ║  services/auth/internal/postgres/migrations/021_agent_identity.sql ║
 -- ║  M8 – Agent Identity Foundation                                 ║

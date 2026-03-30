@@ -1,4 +1,8 @@
 -- ============================================================
+-- services/auth/internal/postgres/migrations/012_ml_infrastructure.sql
+-- Scope: auth service database only — independent migration sequence
+-- ============================================================
+-- ============================================================
 -- 012_ml_infrastructure.sql
 -- M19 AI/ML Infrastructure
 -- Model Registry + Feature Store + Experiment Tracking

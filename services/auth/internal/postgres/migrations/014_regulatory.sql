@@ -1,3 +1,7 @@
+-- ============================================================
+-- services/auth/internal/postgres/migrations/014_regulatory.sql
+-- Scope: auth service database only — independent migration sequence
+-- ============================================================
 -- +goose Up
 -- +goose StatementBegin
 

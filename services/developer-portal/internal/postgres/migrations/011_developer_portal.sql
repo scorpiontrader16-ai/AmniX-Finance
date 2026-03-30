@@ -1,4 +1,8 @@
 -- ============================================================
+-- services/developer-portal/internal/postgres/migrations/011_developer_portal.sql
+-- Scope: developer-portal service database only — independent migration sequence
+-- ============================================================
+-- ============================================================
 -- 011_developer_portal.sql
 -- M18 Developer Portal
 -- يبني فوق api_keys الموجودة في 005

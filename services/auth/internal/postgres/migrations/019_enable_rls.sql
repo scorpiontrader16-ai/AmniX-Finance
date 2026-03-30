@@ -1,3 +1,7 @@
+-- ============================================================
+-- services/auth/internal/postgres/migrations/019_enable_rls.sql
+-- Scope: auth service database only — independent migration sequence
+-- ============================================================
 -- +goose Up
 -- +goose StatementBegin
 

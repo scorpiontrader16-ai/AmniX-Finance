@@ -1,4 +1,8 @@
 -- ============================================================
+-- services/notifications/internal/postgres/migrations/007_notifications.sql
+-- Scope: notifications service database only — independent migration sequence
+-- ============================================================
+-- ============================================================
 -- 007_notifications.sql
 -- M13 Notifications — in-app + email preferences + audit
 -- ============================================================

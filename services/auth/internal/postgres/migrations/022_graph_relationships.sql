@@ -1,3 +1,7 @@
+-- ============================================================
+-- services/auth/internal/postgres/migrations/022_graph_relationships.sql
+-- Scope: auth service database only — independent migration sequence
+-- ============================================================
 -- ╔══════════════════════════════════════════════════════════════════╗
 -- ║  services/auth/internal/postgres/migrations/022_graph_relationships.sql ║
 -- ║  Status: 🆕 New  |  M10 – Graph Intelligence Data Model         ║

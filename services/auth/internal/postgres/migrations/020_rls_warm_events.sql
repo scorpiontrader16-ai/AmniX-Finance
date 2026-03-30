@@ -1,3 +1,7 @@
+-- ============================================================
+-- services/auth/internal/postgres/migrations/020_rls_warm_events.sql
+-- Scope: auth service database only — independent migration sequence
+-- ============================================================
 -- +goose Up
 -- +goose StatementBegin
 

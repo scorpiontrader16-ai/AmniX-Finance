@@ -1,3 +1,7 @@
+-- ============================================================
+-- services/ingestion/internal/postgres/migrations/002_tiering_metadata.sql
+-- Scope: ingestion service database only — independent migration sequence
+-- ============================================================
 -- services/ingestion/internal/postgres/migrations/002_tiering_metadata.sql
 -- +goose Up
 -- +goose StatementBegin

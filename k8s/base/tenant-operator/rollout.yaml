@@ -34,6 +34,20 @@ spec:
                   key: postgres_conn
             - name: KAFKA_BROKERS
               value: "redpanda.platform.svc.cluster.local:9092"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9099
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 9099
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
           resources:
             requests:
               cpu: 50m

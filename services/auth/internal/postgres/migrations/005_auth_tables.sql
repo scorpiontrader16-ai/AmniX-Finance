@@ -1,4 +1,8 @@
 -- ============================================================
+-- services/auth/internal/postgres/migrations/005_auth_tables.sql
+-- Scope: auth service database only — independent migration sequence
+-- ============================================================
+-- ============================================================
 -- 005_auth_tables.sql
 -- M8 Auth & Identity + M10 RBAC
 -- يبني فوق tenants table الموجودة في 004

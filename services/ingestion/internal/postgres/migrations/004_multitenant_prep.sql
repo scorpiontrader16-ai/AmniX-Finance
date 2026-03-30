@@ -1,4 +1,8 @@
 -- ============================================================
+-- services/ingestion/internal/postgres/migrations/004_multitenant_prep.sql
+-- Scope: ingestion service database only — independent migration sequence
+-- ============================================================
+-- ============================================================
 -- 004_multitenant_prep.sql
 -- Multi-Tenant Foundation — tenants table + RLS + safe constraints
 -- ============================================================

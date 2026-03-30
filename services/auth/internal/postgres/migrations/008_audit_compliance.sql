@@ -1,4 +1,8 @@
 -- ============================================================
+-- services/auth/internal/postgres/migrations/008_audit_compliance.sql
+-- Scope: auth service database only — independent migration sequence
+-- ============================================================
+-- ============================================================
 -- 008_audit_compliance.sql
 -- M14 Audit & Compliance
 -- يبني فوق كل الـ tables الموجودة

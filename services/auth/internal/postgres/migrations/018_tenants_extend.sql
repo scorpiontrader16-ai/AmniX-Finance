@@ -1,3 +1,7 @@
+-- ============================================================
+-- services/auth/internal/postgres/migrations/018_tenants_extend.sql
+-- Scope: auth service database only — independent migration sequence
+-- ============================================================
 -- +goose Up
 -- +goose StatementBegin
 

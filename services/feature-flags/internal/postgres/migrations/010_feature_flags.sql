@@ -1,4 +1,8 @@
 -- ============================================================
+-- services/feature-flags/internal/postgres/migrations/010_feature_flags.sql
+-- Scope: feature-flags service database only — independent migration sequence
+-- ============================================================
+-- ============================================================
 -- 010_feature_flags.sql
 -- M16 Feature Flags
 -- ============================================================

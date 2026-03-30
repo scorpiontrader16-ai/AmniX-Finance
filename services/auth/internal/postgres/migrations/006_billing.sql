@@ -1,4 +1,8 @@
 -- ============================================================
+-- services/auth/internal/postgres/migrations/006_billing.sql
+-- Scope: auth service database only — independent migration sequence
+-- ============================================================
+-- ============================================================
 -- 006_billing.sql
 -- M12 Billing & Subscriptions
 -- يبني فوق tenants table الموجودة في 004

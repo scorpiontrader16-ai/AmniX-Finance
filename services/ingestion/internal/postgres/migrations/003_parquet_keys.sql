@@ -1,3 +1,7 @@
+-- ============================================================
+-- services/ingestion/internal/postgres/migrations/003_parquet_keys.sql
+-- Scope: ingestion service database only — independent migration sequence
+-- ============================================================
 -- 003_parquet_keys.sql
 -- +goose Up
 ALTER TABLE warm_events 

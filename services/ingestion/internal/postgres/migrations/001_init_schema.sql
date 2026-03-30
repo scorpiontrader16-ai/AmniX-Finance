@@ -1,3 +1,7 @@
+-- ============================================================
+-- services/ingestion/internal/postgres/migrations/001_init_schema.sql
+-- Scope: ingestion service database only — independent migration sequence
+-- ============================================================
 -- services/ingestion/internal/postgres/migrations/001_init_schema.sql
 -- +goose Up
 -- +goose StatementBegin
