@@ -51,7 +51,7 @@ spec:
           emptyDir: {}
       containers:
         - name: vmalert
-          image: victoriametrics/vmalert:v1.99.0
+          image: victoriametrics/vmalert:v1.101.0
           args:
             # مصدر الـ metrics لتقييم القواعد
             - -datasource.url=http://victoria-metrics.monitoring.svc.cluster.local:8428
