@@ -1,8 +1,12 @@
+# k8s/base/tenant-operator/networkpolicy.yaml
+# لماذا: tenant-operator يدير tenants في Postgres ويرسل events
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: tenant-operator
   namespace: platform
+  labels:
+    app: tenant-operator
 spec:
   podSelector:
     matchLabels:
@@ -11,13 +15,11 @@ spec:
     - Ingress
     - Egress
   ingress:
+    # ── من API Gateway ───────────────────────────────────────
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: platform
-          podSelector:
-            matchLabels:
-              app: api-gateway
+              kubernetes.io/metadata.name: envoy-gateway-system
       ports:
         - port: 9099
           protocol: TCP
@@ -30,14 +32,36 @@ spec:
         - port: 9099
           protocol: TCP
   egress:
-    # DNS resolution (CoreDNS)
-    - ports:
-        - port: 53
-          protocol: UDP
-        - port: 53
-          protocol: TCP
-    # outbound to platform namespace only
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: platform
+      # ── Postgres ────────────────────────────────────────────
+      - to:
+          - podSelector:
+              matchLabels:
+                app: postgres
+        ports:
+          - port: 5432
+            protocol: TCP
+      # ── Redpanda/Kafka ───────────────────────────────────────
+      - to:
+          - podSelector:
+              matchLabels:
+                app: redpanda
+        ports:
+          - port: 9092
+            protocol: TCP
+      # ── OTel Collector ───────────────────────────────────────
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: monitoring
+          - podSelector:
+              matchLabels:
+                app: otel-collector
+        ports:
+          - port: 4317
+            protocol: TCP
+      # ── DNS ──────────────────────────────────────────────────
+      - ports:
+          - port: 53
+            protocol: UDP
+          - port: 53
+            protocol: TCP
