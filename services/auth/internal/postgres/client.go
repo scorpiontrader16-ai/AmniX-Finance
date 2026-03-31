@@ -161,15 +161,15 @@ func (c *Client) UpsertByKeycloakID(ctx context.Context, keycloakID, email, firs
 type Tenant struct {
 	ID   string
 	Slug string
-	Plan string
+	Tier string
 }
 
 func (c *Client) GetTenantBySlug(ctx context.Context, slug string) (*Tenant, error) {
 	var t Tenant
 	err := c.db.QueryRow(ctx,
-		`SELECT id, slug, plan FROM tenants WHERE slug = $1`,
+		`SELECT id, slug, tier FROM tenants WHERE slug = $1`,
 		slug,
-	).Scan(&t.ID, &t.Slug, &t.Plan)
+	).Scan(&t.ID, &t.Slug, &t.Tier)
 	if err != nil {
 		return nil, err
 	}
@@ -179,9 +179,9 @@ func (c *Client) GetTenantBySlug(ctx context.Context, slug string) (*Tenant, err
 func (c *Client) GetTenantByID(ctx context.Context, id string) (*Tenant, error) {
 	var t Tenant
 	err := c.db.QueryRow(ctx,
-		`SELECT id, slug, plan FROM tenants WHERE id = $1`,
+		`SELECT id, slug, tier FROM tenants WHERE id = $1`,
 		id,
-	).Scan(&t.ID, &t.Slug, &t.Plan)
+	).Scan(&t.ID, &t.Slug, &t.Tier)
 	if err != nil {
 		return nil, err
 	}

@@ -35,7 +35,7 @@ type Claims struct {
 	// M9: الـ tenant
 	TenantID   string `json:"tid"`
 	TenantSlug string `json:"tslug"`
-	Plan       string `json:"plan"`
+	Tier       string `json:"tier"`
 
 	// M10: الـ permissions
 	Role        string   `json:"role"`
@@ -55,7 +55,7 @@ type IssueInput struct {
 	SessionID   string
 	TenantID    string
 	TenantSlug  string
-	Plan        string
+	Tier        string
 	Role        string
 	Permissions []string
 }
@@ -99,7 +99,7 @@ func (s *Service) IssueAccessToken(in IssueInput) (string, error) {
 		SessionID:   in.SessionID,
 		TenantID:    in.TenantID,
 		TenantSlug:  in.TenantSlug,
-		Plan:        in.Plan,
+		Tier:        in.Tier,
 		Role:        in.Role,
 		Permissions: in.Permissions,
 		RegisteredClaims: gojwt.RegisteredClaims{

@@ -11,8 +11,9 @@ import (
 
 const cacheTTL = 2 * time.Minute
 
-// planPermissions — permissions تتفتح بالـ plan بغض النظر عن الـ role
-var planPermissions = map[string][]string{
+// tierPermissions — permissions تتفتح بالـ tier بغض النظر عن الـ role.
+// القيم المعتمدة: basic | pro | enterprise (M8 spec).
+var tierPermissions = map[string][]string{
 	"basic": {
 		"markets:read",
 		"analytics:read",
@@ -21,12 +22,6 @@ var planPermissions = map[string][]string{
 		"markets:read", "markets:stream",
 		"analytics:read", "analytics:export",
 		"agents:read", "agents:execute",
-	},
-	"business": {
-		"markets:read", "markets:write", "markets:stream",
-		"analytics:read", "analytics:export", "analytics:backtest",
-		"agents:read", "agents:write", "agents:execute",
-		"users:read", "users:write",
 	},
 	"enterprise": nil, // كل الـ permissions عن طريق الـ roles
 }
@@ -47,8 +42,8 @@ func NewEngine(db DB, rdb *redis.Client) *Engine {
 }
 
 // Check يتحقق إن الـ user عنده permission محددة في tenant معين
-func (e *Engine) Check(ctx context.Context, userID, tenantID, plan, resource, action string) (bool, error) {
-	perms, err := e.GetPermissions(ctx, userID, tenantID, plan)
+func (e *Engine) Check(ctx context.Context, userID, tenantID, tier, resource, action string) (bool, error) {
+	perms, err := e.GetPermissions(ctx, userID, tenantID, tier)
 	if err != nil {
 		return false, err
 	}
@@ -61,8 +56,8 @@ func (e *Engine) Check(ctx context.Context, userID, tenantID, plan, resource, ac
 	return false, nil
 }
 
-// GetPermissions يجمع role permissions + plan permissions مع Redis cache
-func (e *Engine) GetPermissions(ctx context.Context, userID, tenantID, plan string) ([]string, error) {
+// GetPermissions يجمع role permissions + tier permissions مع Redis cache
+func (e *Engine) GetPermissions(ctx context.Context, userID, tenantID, tier string) ([]string, error) {
 	cacheKey := fmt.Sprintf("perms:%s:%s", userID, tenantID)
 
 	// 1. Redis cache
@@ -76,12 +71,12 @@ func (e *Engine) GetPermissions(ctx context.Context, userID, tenantID, plan stri
 		return nil, err
 	}
 
-	// 3. دمج role + plan permissions
+	// 3. دمج role + tier permissions
 	permSet := make(map[string]struct{})
 	for _, p := range rolePerms {
 		permSet[p] = struct{}{}
 	}
-	for _, p := range planPermissions[plan] {
+	for _, p := range tierPermissions[tier] {
 		permSet[p] = struct{}{}
 	}
 
@@ -94,7 +89,7 @@ func (e *Engine) GetPermissions(ctx context.Context, userID, tenantID, plan stri
 	return perms, nil
 }
 
-// Invalidate يمسح الـ cache لما الـ role أو الـ plan يتغير
+// Invalidate يمسح الـ cache لما الـ role أو الـ tier يتغير
 func (e *Engine) Invalidate(ctx context.Context, userID, tenantID string) {
 	e.redis.Del(ctx, fmt.Sprintf("perms:%s:%s", userID, tenantID))
 }

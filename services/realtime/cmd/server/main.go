@@ -80,7 +80,7 @@ type Claims struct {
 	Email      string `json:"email"`
 	TenantID   string `json:"tid"`
 	TenantSlug string `json:"tslug"`
-	Plan       string `json:"plan"`
+	Tier       string `json:"tier"`
 	Role       string `json:"role"`
 	jwt.RegisteredClaims
 }

@@ -356,7 +356,7 @@ func makeLoginHandler(cfg Config, pg *postgres.Client, jwtSvc *appjwt.Service, r
 				log.Warn("assign default role failed", zap.Error(assignErr))
 			}
 		}
-		perms, err := rbacEngine.GetPermissions(ctx, user.ID, tenant.ID, tenant.Plan)
+		perms, err := rbacEngine.GetPermissions(ctx, user.ID, tenant.ID, tenant.Tier)
 		if err != nil {
 			log.Error("load permissions failed", zap.Error(err))
 			perms = []string{}
@@ -368,7 +368,7 @@ func makeLoginHandler(cfg Config, pg *postgres.Client, jwtSvc *appjwt.Service, r
 			jsonError(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		token, err := jwtSvc.IssueAccessToken(appjwt.IssueInput{UserID: user.ID, Email: user.Email, SessionID: sessionID, TenantID: tenant.ID, TenantSlug: tenant.Slug, Plan: tenant.Plan, Role: role, Permissions: perms})
+		token, err := jwtSvc.IssueAccessToken(appjwt.IssueInput{UserID: user.ID, Email: user.Email, SessionID: sessionID, TenantID: tenant.ID, TenantSlug: tenant.Slug, Tier: tenant.Tier, Role: role, Permissions: perms})
 		if err != nil {
 			log.Error("JWT issuance failed", zap.Error(err))
 			jsonError(w, "internal error", http.StatusInternalServerError)
@@ -431,11 +431,11 @@ func makeRefreshHandler(pg *postgres.Client, jwtSvc *appjwt.Service, rbacEngine 
 		if err != nil {
 			role = "viewer"
 		}
-		perms, err := rbacEngine.GetPermissions(ctx, user.ID, tenant.ID, tenant.Plan)
+		perms, err := rbacEngine.GetPermissions(ctx, user.ID, tenant.ID, tenant.Tier)
 		if err != nil {
 			perms = []string{}
 		}
-		newToken, err := jwtSvc.IssueAccessToken(appjwt.IssueInput{UserID: user.ID, Email: user.Email, SessionID: session.ID, TenantID: tenant.ID, TenantSlug: tenant.Slug, Plan: tenant.Plan, Role: role, Permissions: perms})
+		newToken, err := jwtSvc.IssueAccessToken(appjwt.IssueInput{UserID: user.ID, Email: user.Email, SessionID: session.ID, TenantID: tenant.ID, TenantSlug: tenant.Slug, Tier: tenant.Tier, Role: role, Permissions: perms})
 		if err != nil {
 			log.Error("JWT issuance failed", zap.Error(err))
 			jsonError(w, "internal error", http.StatusInternalServerError)
@@ -508,7 +508,7 @@ func makePasswordLoginHandler(pg *postgres.Client, jwtSvc *appjwt.Service, rbacE
 		if err != nil {
 			role = "viewer"
 		}
-		perms, err := rbacEngine.GetPermissions(ctx, user.ID, tenant.ID, tenant.Plan)
+		perms, err := rbacEngine.GetPermissions(ctx, user.ID, tenant.ID, tenant.Tier)
 		if err != nil {
 			perms = []string{}
 		}
@@ -519,7 +519,7 @@ func makePasswordLoginHandler(pg *postgres.Client, jwtSvc *appjwt.Service, rbacE
 			jsonError(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		token, err := jwtSvc.IssueAccessToken(appjwt.IssueInput{UserID: user.ID, Email: user.Email, SessionID: sessionID, TenantID: tenant.ID, TenantSlug: tenant.Slug, Plan: tenant.Plan, Role: role, Permissions: perms})
+		token, err := jwtSvc.IssueAccessToken(appjwt.IssueInput{UserID: user.ID, Email: user.Email, SessionID: sessionID, TenantID: tenant.ID, TenantSlug: tenant.Slug, Tier: tenant.Tier, Role: role, Permissions: perms})
 		if err != nil {
 			log.Error("JWT issuance", zap.Error(err))
 			jsonError(w, "internal error", http.StatusInternalServerError)
