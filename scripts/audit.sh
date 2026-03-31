@@ -288,19 +288,20 @@ fi
 # ══════════════════════════════════════════════════════════════════
 section "10. ArgoCD App Paths"
 if command -v yq >/dev/null 2>&1; then
-  find infra/argocd k8s/ -\( -name "*.yaml" -o -name "*.yml" \) 2>/dev/null \
-    | xargs grep -l "kind: Application$" 2>/dev/null | sort | while read -r app; do
-    NAME=$(yq '.metadata.name' "$app" 2>/dev/null || echo "unknown")
-    PVAL=$(yq '.spec.source.path' "$app" 2>/dev/null || echo "")
-    if [ -n "$PVAL" ] && [ "$PVAL" != "null" ]; then
-      CLEAN="${PVAL#/}"
-      if [ -d "$CLEAN" ] || [ -f "$CLEAN" ]; then
-        pass "App '$NAME' path '$PVAL' OK"
-      else
-        fail "App '$NAME' path '$PVAL' NOT FOUND on disk"
-      fi
-    fi
+  _ARGOCD_TMP=$(mktemp)
+  for _app in $(find infra/argocd k8s/ \( -name "*.yaml" -o -name "*.yml" \) 2>/dev/null \
+    | xargs grep -l "kind: Application$" 2>/dev/null | sort); do
+    yq -o=json '.' "$_app" 2>/dev/null | python3 scripts/argocd_paths.py >> "$_ARGOCD_TMP"
   done
+  while IFS="|" read -r NAME PVAL; do
+    CLEAN="${PVAL#/}"
+    if [ -d "$CLEAN" ] || [ -f "$CLEAN" ]; then
+      pass "App '$NAME' path '$PVAL' OK"
+    else
+      fail "App '$NAME' path '$PVAL' NOT FOUND on disk"
+    fi
+  done < "$_ARGOCD_TMP"
+  rm -f "$_ARGOCD_TMP"
 else
   warn "yq not installed — skipping ArgoCD path check"
 fi
