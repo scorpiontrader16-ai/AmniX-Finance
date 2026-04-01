@@ -11,7 +11,7 @@ resources:
 # لا تعدّل :latest يدوياً — استخدم semantic version أو SHA digest
 images:
   - name: ghcr.io/scorpiontrader16-ai/youtuop-1/ingestion
-    newTag: "1.0.117"
+    newTag: "0.1.17"
 patches:
   - target:
       kind: Rollout
