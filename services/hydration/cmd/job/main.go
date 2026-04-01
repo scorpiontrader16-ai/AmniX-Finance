@@ -8,6 +8,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+
+	"github.com/scorpiontrader16-ai/youtuop-1/services/hydration/internal/profiling"
 	"os"
 	"strconv"
 	"time"
@@ -43,6 +45,10 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
+
+	// GAP-11: Continuous profiling
+	profiling.Init(logger)
+
 
 	cfg := configFromEnv()
 

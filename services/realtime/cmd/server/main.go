@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/scorpiontrader16-ai/youtuop-1/services/realtime/internal/profiling"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -20,6 +21,8 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"log/slog"
+
 	"go.uber.org/zap"
 
 	"github.com/scorpiontrader16-ai/youtuop-1/services/realtime/internal/consumer"
@@ -90,6 +93,21 @@ func (c *Claims) UserID() string { return c.Subject }
 func main() {
 	log, err := zap.NewProduction()
 	if err != nil {
+
+	// GAP-11: Continuous profiling
+	profiling.Init(slog.Default())
+
+	// GAP-11: Continuous profiling
+	profiling.Init(slog.Default())
+
+	// GAP-11: Continuous profiling
+	profiling.Init(slog.Default())
+
+	// GAP-11: Continuous profiling
+	profiling.Init(slog.Default())
+
+	// GAP-11: Continuous profiling
+	profiling.Init(slog.Default())
 		fmt.Fprintf(os.Stderr, "failed to init logger: %v\n", err)
 		os.Exit(1)
 	}

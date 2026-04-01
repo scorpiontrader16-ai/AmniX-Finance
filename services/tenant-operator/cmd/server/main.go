@@ -6,6 +6,7 @@ package main
 // ╚══════════════════════════════════════════════════════════════════╝
 
 import (
+	"github.com/scorpiontrader16-ai/youtuop-1/services/tenant-operator/internal/profiling"
 	"context"
 	"os"
 	"os/signal"
@@ -13,6 +14,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"log/slog"
+
 	"go.uber.org/zap"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -22,6 +25,9 @@ import (
 
 func main() {
 	logger := zap.Must(zap.NewProduction())
+
+	// GAP-11: Continuous profiling — slog adapter for pyroscope
+	profiling.Init(slog.Default())
 	defer logger.Sync() //nolint:errcheck
 
 	// ── PostgreSQL ────────────────────────────────────────────────────

@@ -4,6 +4,8 @@ import (
     "context"
     "encoding/json"
     "log/slog"
+
+	"github.com/scorpiontrader16-ai/youtuop-1/services/search/internal/profiling"
     "net"
     "net/http"
     "os"
@@ -53,6 +55,9 @@ var (
 func main() {
     logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
     slog.SetDefault(logger)
+
+	// GAP-11: Continuous profiling
+	profiling.Init(logger)
 
     shutdown, err := initTracer()
     if err != nil {

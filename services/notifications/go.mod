@@ -6,6 +6,7 @@ toolchain go1.24.13
 
 require (
 	github.com/google/uuid v1.6.0
+	github.com/grafana/pyroscope-go v1.2.8
 	github.com/jackc/pgx/v5 v5.7.1
 	github.com/pressly/goose/v3 v3.24.0
 	github.com/prometheus/client_golang v1.19.0
@@ -22,10 +23,12 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/grafana/pyroscope-go/godeltaprof v0.1.9 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.7 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	github.com/klauspost/compress v1.17.8 // indirect
 	github.com/mfridman/interpolate v0.0.2 // indirect
 	github.com/prometheus/client_model v0.5.0 // indirect
 	github.com/prometheus/common v0.48.0 // indirect

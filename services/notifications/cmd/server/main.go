@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+
+	"github.com/scorpiontrader16-ai/youtuop-1/services/notifications/internal/profiling"
 	"net/http"
 	"os"
 	"os/signal"
@@ -102,6 +104,10 @@ func main() {
 	slogLogger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
+
+	// GAP-11: Continuous profiling
+	profiling.Init(slogLogger)
+
 
 	startupCtx, startupCancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer startupCancel()

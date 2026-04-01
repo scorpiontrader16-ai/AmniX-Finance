@@ -8,6 +8,8 @@ require (
 )
 
 require (
+	github.com/grafana/pyroscope-go/godeltaprof v0.1.9 // indirect
+	github.com/klauspost/compress v1.17.8 // indirect
 	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/sys v0.39.0 // indirect
 	golang.org/x/text v0.32.0 // indirect
@@ -15,6 +17,7 @@ require (
 )
 
 require (
+	github.com/grafana/pyroscope-go v1.2.8
 	github.com/scorpiontrader16-ai/youtuop-1 v0.0.0-00010101000000-000000000000
 )
 
