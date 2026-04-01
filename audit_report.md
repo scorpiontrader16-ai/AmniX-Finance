@@ -1,19 +1,11 @@
 # Institutional Efficiency Audit Report
 
-> Generated: 2026-03-31 21:51:14
+> Generated: 2026-04-01 02:29:45
 > Repo: /workspaces/youtuop-1
 
 ---
 
 ## 1. Security
-
-### [CRITICAL] Possible hardcoded credentials
-
-**Where:** ./k8s/base/vault/vault-auth-config.yaml,
-
-**Fix:** Move to environment variables or a secrets manager (Vault, AWS SSM, K8s Secrets). Rotate any real credentials immediately.
-
----
 
 ### [MEDIUM] govulncheck not available in PATH
 
@@ -33,19 +25,19 @@
 
 ---
 
-### [MEDIUM] Go functions with DB/client params possibly missing context.Context
+### [HIGH] panic() calls in production Go code
 
-**Where:** ~228 candidates — verify manually
+**Where:** 1 occurrences
 
-**Fix:** First param should be ctx context.Context for all I/O-bound functions to support cancellation and tracing.
+**Fix:** Replace panics with proper error returns. Reserve panic() only for truly unrecoverable startup failures.
 
 ---
 
-### [HIGH] go.sum missing
+### [MEDIUM] Go functions with DB/client params possibly missing context.Context
 
-**Where:** ./tests/integration
+**Where:** ~231 candidates — verify manually
 
-**Fix:** Run: cd ./tests/integration && go mod tidy
+**Fix:** First param should be ctx context.Context for all I/O-bound functions to support cancellation and tracing.
 
 ---
 
@@ -58,14 +50,6 @@
 ---
 
 ## 3. Infrastructure
-
-### [HIGH] K8s workloads missing resource limits (cpu/memory)
-
-**Where:** ./k8s/base/data-quality/scaledobject.yaml
-
-**Fix:** Add resources.limits.cpu and resources.limits.memory to every container spec. Prevents noisy-neighbour resource exhaustion.
-
----
 
 ### [HIGH] K8s Deployments missing liveness/readiness probes
 
@@ -91,95 +75,15 @@
 
 ---
 
-### [HIGH] Terraform directory missing backend.tf (local state risk)
-
-**Where:** ./infra/terraform/modules/cluster
-
-**Fix:** Add backend.tf with S3/GCS/Terraform Cloud backend. Local state gets lost and can't be shared.
-
----
-
-### [MEDIUM] Terraform variables defined in main.tf (not variables.tf)
-
-**Where:** ./infra/terraform/modules/cluster/main.tf
-
-**Fix:** Move all variable blocks to variables.tf. Keep main.tf for resources only.
-
----
-
-### [HIGH] Terraform directory missing backend.tf (local state risk)
-
-**Where:** ./infra/terraform/modules/databases
-
-**Fix:** Add backend.tf with S3/GCS/Terraform Cloud backend. Local state gets lost and can't be shared.
-
----
-
-### [MEDIUM] Terraform variables defined in main.tf (not variables.tf)
-
-**Where:** ./infra/terraform/modules/databases/main.tf
-
-**Fix:** Move all variable blocks to variables.tf. Keep main.tf for resources only.
-
----
-
-### [HIGH] Terraform directory missing backend.tf (local state risk)
-
-**Where:** ./infra/terraform/modules/networking
-
-**Fix:** Add backend.tf with S3/GCS/Terraform Cloud backend. Local state gets lost and can't be shared.
-
----
-
-### [MEDIUM] Terraform variables defined in main.tf (not variables.tf)
-
-**Where:** ./infra/terraform/modules/networking/main.tf
-
-**Fix:** Move all variable blocks to variables.tf. Keep main.tf for resources only.
-
----
-
-### [HIGH] Terraform directory missing backend.tf (local state risk)
-
-**Where:** ./infra/terraform/modules/redpanda
-
-**Fix:** Add backend.tf with S3/GCS/Terraform Cloud backend. Local state gets lost and can't be shared.
-
----
-
-### [MEDIUM] Terraform variables defined in main.tf (not variables.tf)
-
-**Where:** ./infra/terraform/modules/redpanda/main.tf
-
-**Fix:** Move all variable blocks to variables.tf. Keep main.tf for resources only.
-
----
-
-### [HIGH] Terraform directory missing backend.tf (local state risk)
-
-**Where:** ./infra/terraform/modules/vault
-
-**Fix:** Add backend.tf with S3/GCS/Terraform Cloud backend. Local state gets lost and can't be shared.
-
----
-
-### [MEDIUM] Terraform variables defined in main.tf (not variables.tf)
-
-**Where:** ./infra/terraform/modules/vault/main.tf
-
-**Fix:** Move all variable blocks to variables.tf. Keep main.tf for resources only.
-
----
-
-### [MEDIUM] Hardcoded AWS region or account ID in Terraform
-
-**Where:** ./infra/terraform/modules/vault
-
-**Fix:** Move to variables.tf or tfvars. Use data.aws_caller_identity.current.account_id for account IDs.
-
----
-
 ## 4. CI/CD Pipeline
+
+### [HIGH] GitHub Actions not pinned to commit SHA
+
+**Where:** 2230 action references using mutable tags (e.g. @v3)
+
+**Fix:** Pin every 'uses:' to a full 40-char SHA: actions/checkout@8ade135 → actions/checkout@<sha>. Use Dependabot to update.
+
+---
 
 ### [MEDIUM] Workflows with no timeout-minutes (runaway jobs waste credits)
 
@@ -205,11 +109,11 @@
 
 | Severity | Count |
 |----------|-------|
-| CRITICAL | 1 |
-| HIGH     | 9 |
-| MEDIUM   | 12 |
+| CRITICAL | 0 |
+| HIGH     | 4 |
+| MEDIUM   | 6 |
 | LOW      | 0 |
-| **Total**| **22** |
+| **Total**| **10** |
 
 ### Recommended fix order
 

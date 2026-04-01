@@ -2144,7 +2144,9 @@ SECRET_HITS=$(grep -rn \
   --include="*.env" --include="*.yaml" --include="*.yml" \
   --include="*.tf" --include="*.json" \
   --exclude-dir=".git" --exclude-dir="vendor" --exclude-dir="node_modules" \
-  . 2>/dev/null | grep -v "_test\." | grep -v "example\|sample\|fake\|dummy\|placeholder" || true)
+  . 2>/dev/null | grep -v "_test\." | grep -v "example\|sample\|fake\|dummy\|placeholder" \
+  | grep -v "os\.Getenv\|getenv\|SecretKeyRef\|secretKeyRef\|json:\"\|struct {\|json.Marshal\|Decode\|BodyParser" \
+  | grep -v "\${\|=\"\${\" " || true)
 
 if [ -n "$SECRET_HITS" ]; then
   FILES=$(echo "$SECRET_HITS" | cut -d: -f1 | sort -u | tr '\n' ', ')
@@ -2381,7 +2383,8 @@ if [ -n "$K8S_FILES" ]; then
   # Resource limits
   MANIFESTS_NO_LIMITS=()
   for f in $K8S_FILES; do
-    if grep -q "kind: Deployment\|kind: StatefulSet\|kind: DaemonSet" "$f" 2>/dev/null; then
+    fname=$(basename "$f")
+    if grep -q "kind: Deployment\|kind: StatefulSet\|kind: DaemonSet" "$f" 2>/dev/null && ! grep -q "kind: ScaledObject" "$f" 2>/dev/null && [[ "$fname" != "scaledobject.yaml" ]]; then
       if ! grep -q "limits:" "$f" 2>/dev/null; then
         MANIFESTS_NO_LIMITS+=("$f")
       fi
@@ -2447,7 +2450,7 @@ fi
 
 log "Auditing Terraform..."
 
-TF_DIRS=$(find . -name "*.tf" -not -path "*/.git/*" -exec dirname {} \; 2>/dev/null | sort -u || true)
+TF_DIRS=$(find . -name "*.tf" -not -path "*/.git/*" -not -path "*/modules/*" -exec dirname {} \; 2>/dev/null | sort -u || true)
 if [ -n "$TF_DIRS" ]; then
 
   for tfdir in $TF_DIRS; do

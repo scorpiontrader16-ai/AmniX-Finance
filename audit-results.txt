@@ -17,7 +17,7 @@
 
 ## 2. Duplicate Files
 
-- [ ] FAIL Duplicate files found
+- [x] No exact duplicate files (fdupes)
 - [~] WARN Same filename in multiple paths (expected for go.mod/Cargo.toml/main.go):
 
 ## 3. Go Services — Build + Vet + Test
@@ -108,51 +108,15 @@
 
 ## 10. ArgoCD App Paths
 
-- [ ] FAIL App 'platform-apps
----
-kyverno
----
-kyverno-policies
----
-envoy-gateway
----
-vault-config
----
-api-gateway
----
-platform-appset
----
-ingestion
----
-processing
----
-monitoring
----
-falco-config
----
-falco' path 'infra/argocd/apps
----
-null
----
-k8s/base/kyverno
----
-null
----
-k8s/base/vault
----
-k8s/base/api-gateway
----
-infra/argocd/applicationsets
----
-k8s/overlays/production/ingestion
----
-k8s/overlays/production/processing
----
-k8s/base/monitoring
----
-k8s/base/falco
----
-null' NOT FOUND on disk
+- [x] App 'platform-apps' path 'infra/argocd/apps' OK
+- [x] App 'kyverno-policies' path 'k8s/base/kyverno' OK
+- [x] App 'vault-config' path 'k8s/base/vault' OK
+- [x] App 'api-gateway' path 'k8s/base/api-gateway' OK
+- [x] App 'platform-appset' path 'infra/argocd/applicationsets' OK
+- [x] App 'ingestion' path 'k8s/overlays/production/ingestion' OK
+- [x] App 'processing' path 'k8s/overlays/production/processing' OK
+- [x] App 'monitoring' path 'k8s/base/monitoring' OK
+- [x] App 'falco-config' path 'k8s/base/falco' OK
 
 ## 11. Empty Directories
 
@@ -645,6 +609,7 @@ null' NOT FOUND on disk
 - [x] Scope header present: 020_rls_warm_events.sql
 - [x] Scope header present: 021_agent_identity.sql
 - [x] Scope header present: 022_graph_relationships.sql
+- [x] Scope header present: 023_rename_plan_to_tier.sql
 - [x] Scope header present: 009_control_plane.sql
 - [x] Scope header present: 011_developer_portal.sql
 - [x] Scope header present: 010_feature_flags.sql
@@ -1214,7 +1179,7 @@ null' NOT FOUND on disk
 - [x] Prometheus scrape annotation: billing
 - [x] Prometheus port annotation matches containerPort: billing (9093)
 - [x] Prometheus scrape annotation: control-plane
-- [~] WARN Prometheus port annotation (9095) may not match containerPort (8093): control-plane
+- [~] WARN Prometheus port annotation (9093) may not match containerPort (8093): control-plane
 - [x] Prometheus scrape annotation: data-quality
 - [x] Prometheus port annotation matches containerPort: data-quality (9101)
 - [x] Prometheus scrape annotation: developer-portal
@@ -1356,6 +1321,7 @@ null' NOT FOUND on disk
 - [x] Scope header: 020_rls_warm_events.sql
 - [x] Scope header: 021_agent_identity.sql
 - [x] Scope header: 022_graph_relationships.sql
+- [x] Scope header: 023_rename_plan_to_tier.sql
 - [x] Scope header: 009_control_plane.sql
 - [x] Scope header: 011_developer_portal.sql
 - [x] Scope header: 010_feature_flags.sql
@@ -1365,7 +1331,6 @@ null' NOT FOUND on disk
 - [x] Scope header: 004_multitenant_prep.sql
 - [x] Scope header: 007_notifications.sql
 - [x] No duplicate migration numbers within any service
-scripts/audit.sh: line 1609: ALL_NUMS: unbound variable
 - [x] No gaps in migration sequence
 
 ## 41. Go — Module Hygiene + Version Consistency
@@ -1552,7 +1517,7 @@ PROCESSING_ADDR=processing:50051
 - [x] cmd/server/main.go: search ✓
 - [x] internal/ directory: search
 - [x] cmd/server/main.go: tenant-operator ✓
-- [~] WARN internal/ directory missing: tenant-operator
+- [x] internal/ directory: tenant-operator
 
 ## 52. Go Toolchain Consistency
 
@@ -1588,6 +1553,7 @@ PROCESSING_ADDR=processing:50051
 - [x] Scope header present: 022_graph_relationships.sql
 - [x] Scope header present: 020_rls_warm_events.sql
 - [x] Scope header present: 017_auth_tables_extend.sql
+- [x] Scope header present: 023_rename_plan_to_tier.sql
 - [x] Scope header present: 012_ml_infrastructure.sql
 - [x] Scope header present: 015_product_analytics.sql
 - [x] Scope header present: 014_regulatory.sql
@@ -1682,7 +1648,7 @@ PROCESSING_ADDR=processing:50051
 
 
 ════════════════════════════════════════════════════════════
-PASS=1004 | FAIL=6 | WARN=98 | TOTAL=1108
+PASS=1015 | FAIL=5 | WARN=97 | TOTAL=1117
 Report: audit-report.md
 ════════════════════════════════════════════════════════════
 
@@ -1697,23 +1663,14 @@ Report: audit-report.md
 [1m━━━ 2 · CODE QUALITY ━━━[0m
 [0;36m[audit][0m Auditing Go services...
 [0;31m  ✗ [HIGH][0m Go errors silently discarded (_, _ := pattern)
-scripts/audit.sh: line 2249: [: 0
-0: integer expression expected
+[0;31m  ✗ [HIGH][0m panic() calls in production Go code
 [1;33m  ⚠ [MEDIUM][0m Go functions with DB/client params possibly missing context.Context
 [0;32m  ✓[0m golangci-lint available
-[0;31m  ✗ [HIGH][0m go.sum missing
 [0;36m[audit][0m Auditing Python services...
-scripts/audit.sh: line 2304: [: 0
-0: integer expression expected
-scripts/audit.sh: line 2304: [: 0
-0: integer expression expected
-scripts/audit.sh: line 2314: [: 0
-0: integer expression expected
+[1;33m  ⚠ [MEDIUM][0m Bare except: clauses in Python (catches BaseException)
 grep: invalid option -- '>'
 Usage: grep [OPTION]... PATTERNS [FILE]...
 Try 'grep --help' for more information.
-scripts/audit.sh: line 2323: [: 0
-0: integer expression expected
 [0;36m[audit][0m Auditing Rust code...
 
 [1m━━━ 3 · INFRASTRUCTURE ━━━[0m
@@ -1737,59 +1694,55 @@ scripts/audit.sh: line 2323: [: 0
 
 [1m━━━ 4 · CI/CD PIPELINE ━━━[0m
 [0;36m[audit][0m Auditing CI/CD workflows...
-scripts/audit.sh: line 2482: [: 223
-0: integer expression expected
-[0;32m  ✓[0m Actions pinned to SHAs
+[0;31m  ✗ [HIGH][0m GitHub Actions not pinned to commit SHA
 [1;33m  ⚠ [MEDIUM][0m Workflows with no timeout-minutes (runaway jobs waste credits)
 
 [1m━━━ 5 · OBSERVABILITY ━━━[0m
 [0;36m[audit][0m Auditing observability coverage...
-scripts/audit.sh: line 2556: [: 0
-0: integer expression expected
 [0;32m  ✓[0m OpenTelemetry present in Go services
 [0;32m  ✓[0m Prometheus metrics present (103 references)
 [0;32m  ✓[0m Health endpoints present
 
 [1m━━━ 6 · DEPENDENCY HYGIENE ━━━[0m
 [0;36m[audit][0m Auditing dependency hygiene...
-scripts/audit.sh: line 2623: [: 0
+scripts/audit.sh: line 2644: [: 0
 0: integer expression expected
-scripts/audit.sh: line 2623: [: 0
+scripts/audit.sh: line 2644: [: 0
 0: integer expression expected
-scripts/audit.sh: line 2623: [: 0
+scripts/audit.sh: line 2644: [: 0
 0: integer expression expected
-scripts/audit.sh: line 2623: [: 0
+scripts/audit.sh: line 2644: [: 0
 0: integer expression expected
-scripts/audit.sh: line 2623: [: 0
+scripts/audit.sh: line 2644: [: 0
 0: integer expression expected
-scripts/audit.sh: line 2623: [: 0
+scripts/audit.sh: line 2644: [: 0
 0: integer expression expected
-scripts/audit.sh: line 2623: [: 0
+scripts/audit.sh: line 2644: [: 0
 0: integer expression expected
-scripts/audit.sh: line 2623: [: 0
+scripts/audit.sh: line 2644: [: 0
 0: integer expression expected
-scripts/audit.sh: line 2623: [: 0
+scripts/audit.sh: line 2644: [: 0
 0: integer expression expected
-scripts/audit.sh: line 2623: [: 0
+scripts/audit.sh: line 2644: [: 0
 0: integer expression expected
-scripts/audit.sh: line 2623: [: 0
+scripts/audit.sh: line 2644: [: 0
 0: integer expression expected
-scripts/audit.sh: line 2623: [: 0
+scripts/audit.sh: line 2644: [: 0
 0: integer expression expected
-scripts/audit.sh: line 2623: [: 0
+scripts/audit.sh: line 2644: [: 0
 0: integer expression expected
-scripts/audit.sh: line 2623: [: 0
+scripts/audit.sh: line 2644: [: 0
 0: integer expression expected
 
 [1m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
 [1m  AUDIT COMPLETE[0m
 [1m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
   [0;31mCRITICAL  [0m  1
-  [0;31mHIGH      [0m  9
-  [1;33mMEDIUM    [0m  11
+  [0;31mHIGH      [0m  10
+  [1;33mMEDIUM    [0m  12
   [0;32mLOW       [0m  0
   ─────────────────
-  [1mTOTAL     [0m  21 findings
+  [1mTOTAL     [0m  23 findings
 
   Full report: [0;36m/workspaces/youtuop-1/audit_report.md[0m
 
