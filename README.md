@@ -54,6 +54,9 @@ git push -u origin main
 
 ```bash
 cp .env.example .env
+# IMPORTANT: Set POSTGRES_PASSWORD in .env before running make dev
+# All services require a non-empty password injected from environment variables
+# See .env.example for all required variables
 make dev
 ```
 
@@ -136,6 +139,38 @@ External APIs / WebSockets
 | Hot  | ClickHouse | Real-time queries, dashboards | 7 days |
 | Warm | PostgreSQL | Historical queries, pgvector | 90 days |
 | Cold | MinIO (S3) | Long-term archival (Parquet) | Unlimited |
+
+---
+
+## Security Requirements
+
+### Environment Variables
+
+All services **require** the following environment variables to be explicitly set:
+
+- **`POSTGRES_PASSWORD`** (REQUIRED): Must be injected from external secret management
+  - Never use hardcoded or weak defaults
+  - Services fail immediately at startup if not set
+  - In production: Use AWS Secrets Manager via External Secrets Operator
+  - In development: Set a strong password in `.env` file
+
+- **`POSTGRES_SSL_MODE`** (default: `require`): TLS encryption for database connections
+  - Must be `require` in production
+  - All database traffic is encrypted
+
+### CI/CD Security
+
+- All GitHub Actions workflows are pinned to exact commit SHAs (not version tags)
+- Vulnerability scanning: `govulncheck` + `golangci-lint` on every push/PR
+- Image signing: All container images signed with Cosine + SBOM generation
+- Secret scanning: GitSecret integration prevents credential leaks
+
+### Kubernetes Security
+
+- All pods run as non-root users (UID 1000)
+- Network policies: Default deny-all with explicit allow rules
+- RBAC: ServiceAccounts with minimal required permissions
+- Pod Security Standards: Restricted policy enforced cluster-wide
 
 ---
 
