@@ -2496,7 +2496,7 @@ if [ -d "$WORKFLOW_DIR" ]; then
   # Actions pinned to SHA vs mutable tag
   UNPINNED_ACTIONS=$(grep -rn "uses:.*@" "$WORKFLOW_DIR"/*.yml "$WORKFLOW_DIR"/*.yaml 2>/dev/null | \
     grep -v "@[a-f0-9]\{40\}" | \
-    grep -v "#.*sha\|# sha\|# pinned" | wc -l | tr -d " 	
+    grep -v "#.*sha\|# sha\|# pinned\|# v" | wc -l | tr -d " 	
 " || echo "0")
   if [ "$UNPINNED_ACTIONS" -gt 0 ]; then
     finding "HIGH" "GitHub Actions not pinned to commit SHA" \

@@ -42,6 +42,16 @@ spec:
                   key: postgres_conn
             - name: KAFKA_BROKERS
               value: "redpanda.platform.svc.cluster.local:9092"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: PYROSCOPE_SERVER_URL
+              value: "http://pyroscope.monitoring.svc.cluster.local:4040"
           livenessProbe:
             httpGet:
               path: /healthz
@@ -56,16 +66,6 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
             failureThreshold: 3
-            - name: POD_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
-            - name: POD_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
-            - name: PYROSCOPE_SERVER_URL
-              value: "http://pyroscope.monitoring.svc.cluster.local:4040"
           resources:
             requests:
               cpu: 50m

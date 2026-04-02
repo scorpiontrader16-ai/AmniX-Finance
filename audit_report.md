@@ -1,41 +1,17 @@
 # Institutional Efficiency Audit Report
 
-> Generated: 2026-04-01 02:29:45
+> Generated: 2026-04-01 23:47:51
 > Repo: /workspaces/youtuop-1
 
 ---
 
 ## 1. Security
 
-### [MEDIUM] govulncheck not available in PATH
-
-**Where:** Go services
-
-**Fix:** Install: go install golang.org/x/vuln/cmd/govulncheck@latest  Then run: govulncheck ./... in each service.
-
----
-
 ## 2. Code Quality
-
-### [HIGH] Go errors silently discarded (_, _ := pattern)
-
-**Where:** 24 occurrences across Go files
-
-**Fix:** Replace with proper error handling. Use 'golangci-lint run --enable errcheck' to find all instances.
-
----
-
-### [HIGH] panic() calls in production Go code
-
-**Where:** 1 occurrences
-
-**Fix:** Replace panics with proper error returns. Reserve panic() only for truly unrecoverable startup failures.
-
----
 
 ### [MEDIUM] Go functions with DB/client params possibly missing context.Context
 
-**Where:** ~231 candidates — verify manually
+**Where:** ~243 candidates — verify manually
 
 **Fix:** First param should be ctx context.Context for all I/O-bound functions to support cancellation and tracing.
 
@@ -50,14 +26,6 @@
 ---
 
 ## 3. Infrastructure
-
-### [HIGH] K8s Deployments missing liveness/readiness probes
-
-**Where:** ./k8s/base/data-quality/scaledobject.yaml
-
-**Fix:** Add livenessProbe (restart on deadlock) and readinessProbe (remove from LB until healthy) to each container.
-
----
 
 ### [MEDIUM] Hardcoded AWS region or account ID in Terraform
 
@@ -76,14 +44,6 @@
 ---
 
 ## 4. CI/CD Pipeline
-
-### [HIGH] GitHub Actions not pinned to commit SHA
-
-**Where:** 2230 action references using mutable tags (e.g. @v3)
-
-**Fix:** Pin every 'uses:' to a full 40-char SHA: actions/checkout@8ade135 → actions/checkout@<sha>. Use Dependabot to update.
-
----
 
 ### [MEDIUM] Workflows with no timeout-minutes (runaway jobs waste credits)
 
@@ -110,10 +70,10 @@
 | Severity | Count |
 |----------|-------|
 | CRITICAL | 0 |
-| HIGH     | 4 |
-| MEDIUM   | 6 |
+| HIGH     | 0 |
+| MEDIUM   | 5 |
 | LOW      | 0 |
-| **Total**| **10** |
+| **Total**| **5** |
 
 ### Recommended fix order
 
