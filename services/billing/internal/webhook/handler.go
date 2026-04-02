@@ -26,22 +26,19 @@ func New(db *postgres.Client, log *zap.Logger) *Handler {
 
 // Process يعالج Stripe event واحدة
 func (h *Handler) Process(ctx context.Context, event stripe.Event, rawPayload []byte) error {
-	// 1. تحقق إن الـ event مش اتعمل قبل كده
-	processed, err := h.db.IsEventProcessed(ctx, event.ID)
+	// 1+2. Claim the event atomically — يحل race condition
+	// StoreBillingEvent يستخدم INSERT ON CONFLICT DO NOTHING
+	// إذا claimed=false → event اتعمل أو بيتعمل بطلب ثاني → ارجع بدون processing
+	claimed, err := h.db.StoreBillingEvent(ctx, event.ID, string(event.Type), rawPayload)
 	if err != nil {
-		return fmt.Errorf("check event processed: %w", err)
+		return fmt.Errorf("claim billing event: %w", err)
 	}
-	if processed {
-		h.log.Info("stripe event already processed — skipping",
+	if !claimed {
+		h.log.Info("stripe event already claimed — skipping (idempotency)",
 			zap.String("event_id", event.ID),
 			zap.String("event_type", string(event.Type)),
 		)
 		return nil
-	}
-
-	// 2. حفظ الـ event (idempotency record)
-	if err := h.db.StoreBillingEvent(ctx, event.ID, string(event.Type), rawPayload); err != nil {
-		h.log.Warn("store billing event failed", zap.Error(err))
 	}
 
 	// 3. عالج الـ event حسب نوعه

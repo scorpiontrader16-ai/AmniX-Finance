@@ -383,14 +383,21 @@ func (c *Client) GetUsageSummary(ctx context.Context, tenantID string, from, to 
 // ── Billing Events ────────────────────────────────────────────────────────
 
 // StoreBillingEvent يحفظ Stripe webhook event لضمان idempotency
-func (c *Client) StoreBillingEvent(ctx context.Context, stripeEventID, eventType string, payload []byte) error {
-	_, err := c.db.ExecContext(ctx, `
-		INSERT INTO billing_events (stripe_event_id, event_type, payload)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (stripe_event_id) DO NOTHING`,
-		stripeEventID, eventType, string(payload),
+func (c *Client) StoreBillingEvent(ctx context.Context, stripeEventID, eventType string, payload []byte) (bool, error) {
+	result, err := c.db.ExecContext(ctx, `
+			INSERT INTO billing_events (stripe_event_id, event_type, payload)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (stripe_event_id) DO NOTHING`,
+			stripeEventID, eventType, string(payload),
 	)
-	return err
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }
 
 // MarkEventProcessed يعلّم الـ event كـ processed
