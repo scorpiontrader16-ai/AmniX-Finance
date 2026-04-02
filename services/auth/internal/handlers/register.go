@@ -58,7 +58,7 @@ func (h *RegisterHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 4. Hash password
-	hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), 12)
 	if err != nil {
 		h.logger.Error("hash password", zap.Error(err))
 		http.Error(w, "internal error", http.StatusInternalServerError)
