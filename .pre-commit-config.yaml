@@ -1,0 +1,64 @@
+# ============================================================
+# Pre-commit hooks configuration
+# AmniX-Finance Platform
+# ============================================================
+# Install: pip install pre-commit && pre-commit install
+# Run manually: pre-commit run --all-files
+# Update hooks: pre-commit autoupdate
+# ============================================================
+
+repos:
+  # ── Gitleaks: Secret detection ───────────────────────────
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.2
+    hooks:
+      - id: gitleaks
+        name: Detect secrets with Gitleaks
+        entry: gitleaks protect --verbose --redact --staged
+        language: system
+        pass_filenames: false
+
+  # ── Basic file checks ─────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '\.md$'
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: ['--unsafe']
+        exclude: '^k8s/base/kyverno/policies\.yaml$'
+      - id: check-added-large-files
+        args: ['--maxkb=1024']
+      - id: check-merge-conflict
+      - id: detect-private-key
+        exclude: '(\.pem\.example|test-fixtures/)'
+
+  # ── Go formatting ─────────────────────────────────────────
+  - repo: https://github.com/dnephin/pre-commit-golang
+    rev: v0.5.1
+    hooks:
+      - id: go-fmt
+        args: ['-w']
+      - id: go-mod-tidy
+        files: 'go\.mod$'
+
+  # ── Terraform formatting ──────────────────────────────────
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.88.0
+    hooks:
+      - id: terraform_fmt
+      - id: terraform_validate
+        exclude: '^infra/environments/(dev|staging|prod)/'
+
+  # ── Dockerfile linting ────────────────────────────────────
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.12.0
+    hooks:
+      - id: hadolint-docker
+        args: ['--ignore', 'DL3018', '--ignore', 'DL3008']
+
+ci:
+  autofix_commit_msg: 'chore(pre-commit): auto-fix violations'
+  autoupdate_commit_msg: 'chore(pre-commit): auto-update hooks'
+  skip: [go-mod-tidy, terraform_validate]

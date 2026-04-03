@@ -87,3 +87,6 @@ vault-init.json
 *.log
 audit-results.txt
 *.bak
+
+# ── Pre-commit ───────────────────────────────────────────
+.pre-commit-cache/
