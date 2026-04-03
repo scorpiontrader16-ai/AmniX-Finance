@@ -125,8 +125,11 @@ services:
     container_name: redis
     ports:
       - "6379:6379"
+    environment:
+      # C-04 Fix: Redis must require authentication
+      DFLY_requirepass: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
