@@ -20,7 +20,13 @@ help: ## Show all available targets
 dev: ## Start all services + migrations + schema registration
 	docker compose up -d
 	@echo "Waiting for services to be healthy..."
-	@sleep 15
+	@for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
+		if docker compose ps --format json 2>/dev/null | grep -q '"Health":"healthy"' || \
+		   pg_isready -h localhost -p 5432 -U platform 2>/dev/null; then \
+			echo "  Services ready after $${i}s"; break; \
+		fi; \
+		sleep 1; \
+	done
 	@$(MAKE) db-migrate
 	@$(MAKE) schema-register
 	@echo ""

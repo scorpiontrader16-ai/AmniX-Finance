@@ -56,7 +56,7 @@ services:
     image: redpandadata/console:v2.7.2
     container_name: redpanda-console
     ports:
-      - "8080:8080"     # Web Console → http://localhost:8080
+      - "127.0.0.1:8080:8080"     # Web Console — localhost only, no auth available
     environment:
       CONFIG_FILEPATH: /tmp/config.yml
     entrypoint: /bin/sh
@@ -75,8 +75,8 @@ services:
     image: clickhouse/clickhouse-server:24.3-alpine
     container_name: clickhouse
     ports:
-      - "8123:8123"   # HTTP interface → http://localhost:8123/play
-      - "9100:9000"   # Native TCP (9100 عشان مايتعارضش مع MinIO)
+      - "127.0.0.1:8123:8123"   # HTTP interface — localhost only
+      - "127.0.0.1:9100:9000"   # Native TCP — localhost only
     environment:
       CLICKHOUSE_DB: events
       CLICKHOUSE_USER: platform
@@ -186,9 +186,9 @@ services:
     image: otel/opentelemetry-collector-contrib:0.96.0
     container_name: otel-collector
     ports:
-      - "4317:4317"   # gRPC receiver
-      - "4318:4318"   # HTTP receiver
-      - "8888:8888"   # Prometheus metrics
+      - "127.0.0.1:4317:4317"   # gRPC receiver — localhost only
+      - "127.0.0.1:4318:4318"   # HTTP receiver — localhost only
+      - "127.0.0.1:8888:8888"   # Prometheus metrics — localhost only
     volumes:
       - ./scripts/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
     depends_on:
