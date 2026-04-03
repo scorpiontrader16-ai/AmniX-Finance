@@ -34,7 +34,7 @@ data:
     max_db_connections    = 100
 
     ;; ── Auth (Enterprise Pattern: auth_query) ─────────────────────
-    auth_type  = md5
+    auth_type  = scram-sha-256
     auth_file  = /etc/pgbouncer/userlist.txt
     auth_user  = pgbouncer_auth
     auth_query = SELECT username, password FROM pgbouncer.get_auth($1)
