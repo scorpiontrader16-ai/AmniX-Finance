@@ -144,8 +144,11 @@ func main() {
         httpPort = "9097"
     }
     httpSrv := &http.Server{
-        Addr:    ":" + httpPort,
-        Handler: otelhttp.NewHandler(httpMux, "jobs-http"),
+        Addr:         ":" + httpPort,
+        Handler:      otelhttp.NewHandler(httpMux, "jobs-http"),
+        ReadTimeout:  5 * time.Second,
+        WriteTimeout: 10 * time.Second,
+        IdleTimeout:  120 * time.Second,
     }
 
     // gRPC health server

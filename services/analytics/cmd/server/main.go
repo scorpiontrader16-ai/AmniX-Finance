@@ -157,8 +157,11 @@ func main() {
         httpPort = "9096"
     }
     httpSrv := &http.Server{
-        Addr:    ":" + httpPort,
-        Handler: handler,
+        Addr:         ":" + httpPort,
+        Handler:      handler,
+        ReadTimeout:  5 * time.Second,
+        WriteTimeout: 10 * time.Second,
+        IdleTimeout:  120 * time.Second,
     }
 
     grpcPort := os.Getenv("GRPC_PORT")
