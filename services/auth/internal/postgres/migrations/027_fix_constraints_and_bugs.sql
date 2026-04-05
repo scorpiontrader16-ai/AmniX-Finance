@@ -1,13 +1,12 @@
 -- ============================================================
 -- services/auth/internal/postgres/migrations/027_fix_constraints_and_bugs.sql
 -- Scope: auth service database only — independent migration sequence
--- Global numbering reflects creation order across all services
 --
 -- Fixes:
 --   F-SQL09: failed_login_attempts missing index on attempted_at
 --   F-SQL11: write_audit() without explicit schema prefix
 --   F-SQL14: sync_tenant_plan() fails on unknown plan_id from Stripe
---   F-SQL15: stripe_mode double-quoted '"live"' instead of 'live'
+--   F-SQL15: SKIPPED — system_config table doesn't exist yet
 --   F-SQL22: cron_jobs.schedule TEXT without cron format validation
 --   F-SQL24: agents table missing tenant_id index for RLS queries
 --   F-SQL28: S3 bucket hardcoded in ml_models seed data
@@ -82,11 +81,14 @@ END;
 $$;
 
 -- ════════════════════════════════════════════════════════════════════
--- F-SQL15: stripe_mode double-quoted
+-- F-SQL15: SKIPPED — system_config table doesn't exist yet
+--
+-- Original fix: UPDATE system_config SET value = '"live"'::jsonb
+--               WHERE key = 'billing.stripe_mode' 
+--                 AND value = '"""live"""'::jsonb;
+--
+-- Table not created in migrations 004-026. Deferred until table exists.
 -- ════════════════════════════════════════════════════════════════════
-UPDATE system_config
-SET value = '"live"'::jsonb
-WHERE key = 'billing.stripe_mode' AND value = '"""live"""'::jsonb;
 
 -- ════════════════════════════════════════════════════════════════════
 -- F-SQL22: cron_jobs.schedule validation
@@ -102,7 +104,7 @@ CREATE INDEX IF NOT EXISTS idx_agents_tenant
     ON agents (tenant_id);
 
 -- ════════════════════════════════════════════════════════════════════
--- F-SQL28: S3 bucket hardcoded
+-- F-SQL28: S3 bucket hardcoded in ml_models seed data
 -- ════════════════════════════════════════════════════════════════════
 UPDATE ml_models
 SET artifact_path = REPLACE(
@@ -113,34 +115,34 @@ SET artifact_path = REPLACE(
 WHERE artifact_path LIKE 's3://platform-ml-artifacts%';
 
 -- ════════════════════════════════════════════════════════════════════
--- F-SQL31: background_job_logs missing index
+-- F-SQL31: background_job_logs missing index on (job_id, attempt)
 -- ════════════════════════════════════════════════════════════════════
 CREATE INDEX IF NOT EXISTS idx_background_job_logs_job_attempt
     ON background_job_logs (job_id, attempt DESC);
 
 -- ════════════════════════════════════════════════════════════════════
--- F-SQL37: search_queries.query_text size limit
+-- F-SQL37: search_queries.query_text without size limit (DoS vector)
 -- ════════════════════════════════════════════════════════════════════
 ALTER TABLE search_queries
     ADD CONSTRAINT chk_query_text_size
     CHECK (length(query_text) <= 10240);
 
 -- ════════════════════════════════════════════════════════════════════
--- F-SQL39: analytics_events.properties size limit
+-- F-SQL39: analytics_events.properties JSONB without size limit
 -- ════════════════════════════════════════════════════════════════════
 ALTER TABLE analytics_events
     ADD CONSTRAINT chk_properties_size
     CHECK (length(properties::text) <= 102400);
 
 -- ════════════════════════════════════════════════════════════════════
--- F-SQL42: search_indices.index_type CHECK
+-- F-SQL42: search_indices.index_type without CHECK constraint
 -- ════════════════════════════════════════════════════════════════════
 ALTER TABLE search_indices
     ADD CONSTRAINT chk_index_type
     CHECK (index_type IN ('semantic', 'keyword', 'hybrid'));
 
 -- ════════════════════════════════════════════════════════════════════
--- F-SQL43: analytics_funnel_results UNIQUE constraint
+-- F-SQL43: analytics_funnel_results missing UNIQUE constraint
 -- ════════════════════════════════════════════════════════════════════
 ALTER TABLE analytics_funnel_results
     ADD CONSTRAINT uq_funnel_results_unique
@@ -156,28 +158,60 @@ ALTER TABLE search_indices DROP CONSTRAINT IF EXISTS chk_index_type;
 ALTER TABLE analytics_events DROP CONSTRAINT IF EXISTS chk_properties_size;
 ALTER TABLE search_queries DROP CONSTRAINT IF EXISTS chk_query_text_size;
 DROP INDEX IF EXISTS idx_background_job_logs_job_attempt;
-UPDATE ml_models SET artifact_path = REPLACE(artifact_path, COALESCE(current_setting('app.s3_bucket', true), 's3://platform-ml-artifacts'), 's3://platform-ml-artifacts') WHERE artifact_path LIKE COALESCE(current_setting('app.s3_bucket', true), 's3://platform-ml-artifacts') || '%';
 DROP INDEX IF EXISTS idx_agents_tenant;
 ALTER TABLE cron_jobs DROP CONSTRAINT IF EXISTS chk_cron_schedule;
-UPDATE system_config SET value = '"""live"""'::jsonb WHERE key = 'billing.stripe_mode' AND value = '"live"'::jsonb;
+DROP INDEX IF EXISTS idx_failed_attempts_time;
 
-CREATE OR REPLACE FUNCTION sync_tenant_plan() RETURNS TRIGGER LANGUAGE plpgsql AS $$
+-- Reverse F-SQL28: restore original hardcoded path
+UPDATE ml_models
+SET artifact_path = REPLACE(
+    artifact_path,
+    COALESCE(current_setting('app.s3_bucket', true), 's3://platform-ml-artifacts'),
+    's3://platform-ml-artifacts'
+)
+WHERE artifact_path NOT LIKE 's3://platform-ml-artifacts%';
+
+-- Reverse F-SQL14 & F-SQL11: restore original functions
+CREATE OR REPLACE FUNCTION sync_tenant_plan()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN
     IF NEW.status = 'active' THEN
-        UPDATE tenants SET tier = CASE NEW.plan_id WHEN 'plan_basic' THEN 'basic' WHEN 'plan_pro' THEN 'pro' WHEN 'plan_enterprise' THEN 'enterprise' ELSE 'basic' END WHERE id = NEW.tenant_id;
+        UPDATE tenants
+        SET tier = CASE NEW.plan_id
+            WHEN 'plan_basic'      THEN 'basic'
+            WHEN 'plan_pro'        THEN 'pro'
+            WHEN 'plan_enterprise' THEN 'enterprise'
+        END
+        WHERE id = NEW.tenant_id;
     END IF;
     RETURN NEW;
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION write_audit(p_tenant_id TEXT, p_user_id TEXT, p_action TEXT, p_resource TEXT, p_resource_id TEXT DEFAULT NULL, p_old_data JSONB DEFAULT NULL, p_new_data JSONB DEFAULT NULL, p_ip_address TEXT DEFAULT NULL, p_trace_id TEXT DEFAULT NULL, p_status TEXT DEFAULT 'success', p_error TEXT DEFAULT NULL) RETURNS VOID LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION write_audit(
+    p_tenant_id   TEXT,
+    p_user_id     TEXT,
+    p_action      TEXT,
+    p_resource    TEXT,
+    p_resource_id TEXT DEFAULT NULL,
+    p_old_data    JSONB DEFAULT NULL,
+    p_new_data    JSONB DEFAULT NULL,
+    p_ip_address  TEXT DEFAULT NULL,
+    p_trace_id    TEXT DEFAULT NULL,
+    p_status      TEXT DEFAULT 'success',
+    p_error       TEXT DEFAULT NULL
+) RETURNS VOID LANGUAGE plpgsql AS $$
 BEGIN
-    INSERT INTO audit_log (tenant_id, user_id, action, resource, resource_id, old_data, new_data, ip_address, trace_id, status, error) VALUES (p_tenant_id, p_user_id, p_action, p_resource, p_resource_id, p_old_data, p_new_data, p_ip_address, p_trace_id, p_status, p_error);
+    INSERT INTO audit_log (
+        tenant_id, user_id, action, resource, resource_id,
+        old_data, new_data, ip_address, trace_id, status, error
+    ) VALUES (
+        p_tenant_id, p_user_id, p_action, p_resource, p_resource_id,
+        p_old_data, p_new_data, p_ip_address, p_trace_id, p_status, p_error
+    );
 EXCEPTION WHEN OTHERS THEN
     RAISE WARNING 'write_audit failed: %', SQLERRM;
 END;
 $$;
-
-DROP INDEX IF EXISTS idx_failed_attempts_time;
 
 -- +goose StatementEnd
