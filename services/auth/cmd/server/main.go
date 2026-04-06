@@ -183,6 +183,7 @@ func main() {
 	deviceMiddleware := middleware.DeviceFingerprintMiddleware
 	bruteForce := middleware.NewBruteForceProtection(pgClient)
 
+        tenantMiddleware := middleware.TenantContextMiddleware(jwtSvc)
 	// ── Handlers ───────────────────────────────────────────────────────────
 	mfaHandler      := handlers.NewMFAHandler(pgClient, twilioClient, smsFrom, log)
 	sessionHandler  := handlers.NewSessionHandler(pgClient, log)
@@ -234,21 +235,21 @@ func main() {
 	mux.Handle("POST /v1/auth/logout",         deviceMiddleware(http.HandlerFunc(makeLogoutHandler(pgClient, jwtSvc, log))))
 
 	// ── MFA ───────────────────────────────────────────────────────────────
-	mux.Handle("POST /v1/auth/mfa/totp/generate", deviceMiddleware(http.HandlerFunc(mfaHandler.GenerateTOTP)))
-	mux.Handle("POST /v1/auth/mfa/totp/verify",   deviceMiddleware(http.HandlerFunc(mfaHandler.VerifyTOTP)))
-	mux.Handle("DELETE /v1/auth/mfa/totp",        deviceMiddleware(http.HandlerFunc(mfaHandler.DisableMFA)))
-	mux.Handle("POST /v1/auth/mfa/sms/send",      deviceMiddleware(http.HandlerFunc(mfaHandler.SendSMS)))
-	mux.Handle("POST /v1/auth/mfa/sms/verify",    deviceMiddleware(http.HandlerFunc(mfaHandler.VerifySMS)))
+	mux.Handle("POST /v1/auth/mfa/totp/generate", tenantMiddleware(deviceMiddleware(http.HandlerFunc(mfaHandler.GenerateTOTP))))
+	mux.Handle("POST /v1/auth/mfa/totp/verify",   tenantMiddleware(deviceMiddleware(http.HandlerFunc(mfaHandler.VerifyTOTP))))
+	mux.Handle("DELETE /v1/auth/mfa/totp",        tenantMiddleware(deviceMiddleware(http.HandlerFunc(mfaHandler.DisableMFA))))
+	mux.Handle("POST /v1/auth/mfa/sms/send",      tenantMiddleware(deviceMiddleware(http.HandlerFunc(mfaHandler.SendSMS))))
+	mux.Handle("POST /v1/auth/mfa/sms/verify",    tenantMiddleware(deviceMiddleware(http.HandlerFunc(mfaHandler.VerifySMS))))
 
 	// ── Sessions ──────────────────────────────────────────────────────────
-	mux.Handle("GET /v1/auth/sessions",                 deviceMiddleware(http.HandlerFunc(sessionHandler.List)))
-	mux.Handle("DELETE /v1/auth/sessions/{session_id}", deviceMiddleware(http.HandlerFunc(sessionHandler.Revoke)))
-	mux.Handle("POST /v1/auth/sessions/revoke-all",     deviceMiddleware(http.HandlerFunc(sessionHandler.RevokeAll)))
+	mux.Handle("GET /v1/auth/sessions",                 tenantMiddleware(deviceMiddleware(http.HandlerFunc(sessionHandler.List))))
+	mux.Handle("DELETE /v1/auth/sessions/{session_id}", tenantMiddleware(deviceMiddleware(http.HandlerFunc(sessionHandler.Revoke))))
+	mux.Handle("POST /v1/auth/sessions/revoke-all",     tenantMiddleware(deviceMiddleware(http.HandlerFunc(sessionHandler.RevokeAll))))
 
 	// ── API Keys ──────────────────────────────────────────────────────────
-	mux.Handle("POST /v1/auth/api-keys",            deviceMiddleware(http.HandlerFunc(apiKeyHandler.Create)))
-	mux.Handle("GET /v1/auth/api-keys",             deviceMiddleware(http.HandlerFunc(apiKeyHandler.List)))
-	mux.Handle("DELETE /v1/auth/api-keys/{key_id}", deviceMiddleware(http.HandlerFunc(apiKeyHandler.Revoke)))
+	mux.Handle("POST /v1/auth/api-keys",            tenantMiddleware(deviceMiddleware(http.HandlerFunc(apiKeyHandler.Create))))
+	mux.Handle("GET /v1/auth/api-keys",             tenantMiddleware(deviceMiddleware(http.HandlerFunc(apiKeyHandler.List))))
+	mux.Handle("DELETE /v1/auth/api-keys/{key_id}", tenantMiddleware(deviceMiddleware(http.HandlerFunc(apiKeyHandler.Revoke))))
 	mux.HandleFunc("POST /v1/auth/internal/api-keys/verify", apiKeyHandler.VerifyInternal)
 
 	// ── Account Recovery ──────────────────────────────────────────────────
@@ -259,9 +260,9 @@ func main() {
 	mux.Handle("POST /v1/auth/register", deviceMiddleware(http.HandlerFunc(registerHandler.Register)))
 
 	// ── M8: Agent Identity ────────────────────────────────────────────────
-	mux.Handle("POST /v1/auth/agents",              deviceMiddleware(http.HandlerFunc(agentHandler.CreateAgent)))
-	mux.Handle("GET /v1/auth/agents",               deviceMiddleware(http.HandlerFunc(agentHandler.ListAgents)))
-	mux.Handle("DELETE /v1/auth/agents/{agent_id}", deviceMiddleware(http.HandlerFunc(agentHandler.SuspendAgent)))
+	mux.Handle("POST /v1/auth/agents",              tenantMiddleware(deviceMiddleware(http.HandlerFunc(agentHandler.CreateAgent))))
+	mux.Handle("GET /v1/auth/agents",               tenantMiddleware(deviceMiddleware(http.HandlerFunc(agentHandler.ListAgents))))
+	mux.Handle("DELETE /v1/auth/agents/{agent_id}", tenantMiddleware(deviceMiddleware(http.HandlerFunc(agentHandler.SuspendAgent))))
 
 	httpServer := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.HTTPPort),
