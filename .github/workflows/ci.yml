@@ -519,64 +519,6 @@ jobs:
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
 
-  build-go:
-    name: Go — Ingestion Service
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-      - name: Setup Go 1.24
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
-        with:
-          go-version: '1.24'
-          cache-dependency-path: services/ingestion/go.mod
-      - name: Tidy dependencies
-        working-directory: services/ingestion
-        run: go mod tidy
-      - name: Build
-        working-directory: services/ingestion
-        run: |
-          CGO_ENABLED=0 go build \
-            -ldflags="-s -w -X main.version=ci" \
-            -trimpath \
-            ./cmd/server
-      - name: Vet
-        working-directory: services/ingestion
-        run: go vet ./...
-      - name: Test
-        working-directory: services/ingestion
-        run: go test ./... -timeout 60s
-
-  build-auth:
-    name: Go — Auth Service
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-      - name: Setup Go 1.22
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
-        with:
-          go-version: '1.22'
-          cache-dependency-path: services/auth/go.mod
-      - name: Tidy dependencies
-        working-directory: services/auth
-        run: go mod tidy
-      - name: Build
-        working-directory: services/auth
-        run: |
-          CGO_ENABLED=0 go build \
-            -ldflags="-s -w -X main.version=ci" \
-            -trimpath \
-            ./cmd/server
-      - name: Vet
-        working-directory: services/auth
-        run: go vet ./...
-      - name: Test
-        working-directory: services/auth
-        run: go test ./... -timeout 60s
-
   build-billing:
     name: Go — Billing Service
     runs-on: ubuntu-latest
@@ -1163,7 +1105,7 @@ jobs:
       contents: read
     strategy:
       matrix:
-        service: [ingestion, processing, auth, billing, notifications, analytics, control-plane, developer-portal, feature-flags, realtime, search, tenant-operator, jobs]
+        service: [ingestion, processing, auth, billing, notifications, analytics, control-plane, developer-portal, feature-flags, realtime, search, tenant-operator, jobs, hydration]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
@@ -1191,7 +1133,7 @@ jobs:
       contents: read
     strategy:
       matrix:
-        service: [ingestion, processing, auth, billing, notifications, analytics, control-plane, developer-portal, feature-flags, realtime, search, tenant-operator, jobs]
+        service: [ingestion, processing, auth, billing, notifications, analytics, control-plane, developer-portal, feature-flags, realtime, search, tenant-operator, jobs, hydration]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
