@@ -8,7 +8,7 @@ require (
 	github.com/coder/websocket v1.8.12
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/google/uuid v1.6.0
-	github.com/grafana/pyroscope-go v1.2.8
+	github.com/grafana/pyroscope-go v1.2.8 // indirect
 	github.com/prometheus/client_golang v1.19.0
 	github.com/twmb/franz-go v1.17.1
 	go.opentelemetry.io/otel v1.40.0
@@ -25,7 +25,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/grafana/pyroscope-go/godeltaprof v0.1.9 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.7 // indirect
-	github.com/klauspost/compress v1.17.8 // indirect
+	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/pierrec/lz4/v4 v4.1.21 // indirect
 	github.com/prometheus/client_model v0.5.0 // indirect
 	github.com/prometheus/common v0.48.0 // indirect

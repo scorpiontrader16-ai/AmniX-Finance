@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/scorpiontrader16-ai/youtuop-1/services/hydration/internal/profiling"
+	"github.com/scorpiontrader16-ai/youtuop-1/internal/platform/profiling"
 	"os"
 	"strconv"
 	"time"
@@ -47,7 +47,7 @@ func main() {
 	}))
 
 	// GAP-11: Continuous profiling
-	profiling.Init(logger)
+	profiling.Init(logger, "platform.hydration")
 
 
 	cfg := configFromEnv()

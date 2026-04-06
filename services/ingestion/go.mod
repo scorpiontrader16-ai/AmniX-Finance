@@ -6,7 +6,7 @@ toolchain go1.24.13
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.30.0
-	github.com/grafana/pyroscope-go v1.2.8
+	github.com/grafana/pyroscope-go v1.2.8 // indirect
 	github.com/jackc/pgx/v5 v5.7.1
 	github.com/minio/minio-go/v7 v7.0.70
 	github.com/parquet-go/parquet-go v0.23.0

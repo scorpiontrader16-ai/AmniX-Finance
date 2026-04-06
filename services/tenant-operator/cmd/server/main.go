@@ -6,7 +6,7 @@ package main
 // ╚══════════════════════════════════════════════════════════════════╝
 
 import (
-	"github.com/scorpiontrader16-ai/youtuop-1/services/tenant-operator/internal/profiling"
+	"github.com/scorpiontrader16-ai/youtuop-1/internal/platform/profiling"
 	"context"
 	"os"
 	"os/signal"
@@ -27,7 +27,7 @@ func main() {
 	logger := zap.Must(zap.NewProduction())
 
 	// GAP-11: Continuous profiling — slog adapter for pyroscope
-	profiling.Init(slog.Default())
+	profiling.Init(slog.Default(), "platform.tenant-operator")
 	defer logger.Sync() //nolint:errcheck
 
 	// ── PostgreSQL ────────────────────────────────────────────────────

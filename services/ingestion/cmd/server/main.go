@@ -41,7 +41,7 @@ import (
 	"github.com/scorpiontrader16-ai/youtuop-1/services/ingestion/internal/coldstore"
 	kafkapkg "github.com/scorpiontrader16-ai/youtuop-1/services/ingestion/internal/kafka"
 	"github.com/scorpiontrader16-ai/youtuop-1/services/ingestion/internal/config"
-	"github.com/scorpiontrader16-ai/youtuop-1/services/ingestion/internal/profiling"
+	"github.com/scorpiontrader16-ai/youtuop-1/internal/platform/profiling"
 	"github.com/scorpiontrader16-ai/youtuop-1/services/ingestion/internal/postgres"
 	"github.com/scorpiontrader16-ai/youtuop-1/services/ingestion/internal/tiering"
 )
@@ -158,7 +158,7 @@ func main() {
 	}))
 	// لماذا هنا: profiling يبدأ بعد تهيئة logger مباشرةً
 	// وقبل أي عمل آخر لضمان تسجيل startup time كاملاً
-	profiling.Init(slogLogger)
+	profiling.Init(slogLogger, "platform.ingestion")
 
 	startupCtx, startupCancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer startupCancel()

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/scorpiontrader16-ai/youtuop-1/services/realtime/internal/profiling"
+	"github.com/scorpiontrader16-ai/youtuop-1/internal/platform/profiling"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -186,25 +186,13 @@ func jwkEC(xB64, yB64 string) (*ecdsa.PublicKey, error) {
 func main() {
 	log, err := zap.NewProduction()
 	if err != nil {
-
-	// GAP-11: Continuous profiling
-	profiling.Init(slog.Default())
-
-	// GAP-11: Continuous profiling
-	profiling.Init(slog.Default())
-
-	// GAP-11: Continuous profiling
-	profiling.Init(slog.Default())
-
-	// GAP-11: Continuous profiling
-	profiling.Init(slog.Default())
-
-	// GAP-11: Continuous profiling
-	profiling.Init(slog.Default())
 		fmt.Fprintf(os.Stderr, "failed to init logger: %v\n", err)
 		os.Exit(1)
 	}
 	defer log.Sync() //nolint:errcheck
+
+	// GAP-11: Continuous profiling (F-ING08: warns when URL unset)
+	profiling.Init(slog.Default(), "platform.realtime")
 
 	log.Info("starting realtime service", zap.String("version", version))
 

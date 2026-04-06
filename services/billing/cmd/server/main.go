@@ -7,7 +7,7 @@ import (
 	"io"
 	"log/slog"
 
-	"github.com/scorpiontrader16-ai/youtuop-1/services/billing/internal/profiling"
+	"github.com/scorpiontrader16-ai/youtuop-1/internal/platform/profiling"
 	"net/http"
 	"os"
 	"os/signal"
@@ -120,7 +120,7 @@ func main() {
 	}))
 
 	// GAP-11: Continuous profiling
-	profiling.Init(slogLogger)
+	profiling.Init(slogLogger, "platform.billing")
 
 
 	startupCtx, startupCancel := context.WithTimeout(context.Background(), 60*time.Second)
