@@ -10,6 +10,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/scorpiontrader16-ai/youtuop-1/services/auth/internal/middleware"
 	"github.com/scorpiontrader16-ai/youtuop-1/services/auth/internal/postgres"
 )
 
@@ -23,8 +24,16 @@ func NewAPIKeyHandler(db *postgres.Client, logger *zap.Logger) *APIKeyHandler {
 }
 
 func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value("user_id").(string)
-	tenantID := r.Context().Value("tenant_id").(string)
+	userID, ok := r.Context().Value(middleware.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, "missing user context", http.StatusUnauthorized)
+		return
+	}
+	tenantID, ok := r.Context().Value(middleware.TenantIDKey).(string)
+	if !ok || tenantID == "" {
+		http.Error(w, "missing tenant context", http.StatusUnauthorized)
+		return
+	}
 
 	var req struct {
 		Name        string   `json:"name"`
@@ -63,8 +72,16 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIKeyHandler) List(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value("user_id").(string)
-	tenantID := r.Context().Value("tenant_id").(string)
+	userID, ok := r.Context().Value(middleware.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, "missing user context", http.StatusUnauthorized)
+		return
+	}
+	tenantID, ok := r.Context().Value(middleware.TenantIDKey).(string)
+	if !ok || tenantID == "" {
+		http.Error(w, "missing tenant context", http.StatusUnauthorized)
+		return
+	}
 
 	keys, err := h.db.ListAPIKeys(r.Context(), userID, tenantID)
 	if err != nil {
@@ -76,8 +93,16 @@ func (h *APIKeyHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIKeyHandler) Revoke(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value("user_id").(string)
-	tenantID := r.Context().Value("tenant_id").(string)
+	userID, ok := r.Context().Value(middleware.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, "missing user context", http.StatusUnauthorized)
+		return
+	}
+	tenantID, ok := r.Context().Value(middleware.TenantIDKey).(string)
+	if !ok || tenantID == "" {
+		http.Error(w, "missing tenant context", http.StatusUnauthorized)
+		return
+	}
 
 	// ── Use r.PathValue for Go 1.22 stdlib routing (not gorilla/mux) ──────
 	keyIDStr := r.PathValue("key_id")
