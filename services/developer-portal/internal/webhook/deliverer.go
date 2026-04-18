@@ -8,7 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-    "log/slog"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -23,14 +23,23 @@ const (
 // sharedHTTPClient هو عميل HTTP مشترك يُعاد استخدامه لكل طلبات الـ webhook.
 // إعادة استخدام الاتصالات يحسن الأداء ويقلل استهلاك المقابس.
 var sharedHTTPClient = &http.Client{
-    Timeout: 30 * time.Second,
-    Transport: &http.Transport{
-        MaxIdleConns:        100,
-        MaxIdleConnsPerHost: 10,
-        IdleConnTimeout:     90 * time.Second,
-    },
+	Timeout: 30 * time.Second,
+	Transport: &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
+	},
 }
 
+// packageLogger هو الـ logger المركزي للحزمة.
+var packageLogger = slog.Default()
+
+// SetLogger يضبط الـ logger المركزي للحزمة. يجب استدعاؤه من main().
+func SetLogger(l *slog.Logger) {
+	if l != nil {
+		packageLogger = l
+	}
+}
 
 // Event حدث بيتبعت للـ webhook
 type Event struct {
@@ -52,15 +61,6 @@ type DeliveryResult struct {
 }
 
 // Deliver يرسل event لـ webhook URL مع HMAC signature و retry
-var packageLogger = slog.Default()
-
-// SetLogger يضبط الـ logger المركزي للحزمة. يجب استدعاؤه من main().
-func SetLogger(l *slog.Logger) {
-    if l != nil {
-        packageLogger = l
-    }
-}
-
 func Deliver(ctx context.Context, url, secretHash string, event *Event) *DeliveryResult {
 	payload, err := json.Marshal(event)
 	if err != nil {
@@ -91,7 +91,6 @@ func deliverOnce(ctx context.Context, url, secretHash string, payload []byte, at
 	start := time.Now()
 	ts := fmt.Sprintf("%d", start.Unix())
 
-	// HMAC-SHA256 signature
 	sig := computeSignature(secretHash, ts, payload)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(payload))
@@ -122,14 +121,20 @@ func deliverOnce(ctx context.Context, url, secretHash string, payload []byte, at
 	defer resp.Body.Close()
 
 	var bodyBuf bytes.Buffer
-		if _, err := bodyBuf.ReadFrom(resp.Body); err != nil {
-			packageLogger.ErrorContext(ctx, "webhook read error", "error", err)
-		}
+	if _, err := bodyBuf.ReadFrom(resp.Body); err != nil {
+		packageLogger.ErrorContext(ctx, "webhook read error", "error", err)
+	}
+
+	// استدعاء String() مرة واحدة فقط — تجنب double allocation
+	body := bodyBuf.String()
+	if len(body) > 1000 {
+		body = body[:1000]
+	}
 
 	success := resp.StatusCode >= 200 && resp.StatusCode < 300
 	return &DeliveryResult{
 		StatusCode: resp.StatusCode,
-		Body:       bodyBuf.String()[:min(len(bodyBuf.String()), 1000)],
+		Body:       body,
 		DurationMS: durationMS,
 		Success:    success,
 		Attempt:    attempt,
@@ -150,4 +155,3 @@ func Verify(secretHash, timestamp, signature string, payload []byte) bool {
 	expected := computeSignature(secretHash, timestamp, payload)
 	return hmac.Equal([]byte(signature), []byte(expected))
 }
-
