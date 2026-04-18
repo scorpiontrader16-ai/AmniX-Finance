@@ -6,7 +6,7 @@ toolchain go1.24.13
 
 require (
 	github.com/grafana/pyroscope-go v1.2.8 // indirect
-	github.com/jackc/pgx/v5 v5.5.5
+	github.com/jackc/pgx/v5 v5.7.1
 	github.com/prometheus/client_golang v1.19.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.49.0
 	go.opentelemetry.io/otel v1.40.0
