@@ -5,7 +5,7 @@ import (
     "net/http"
     "time"
 
-    "github.com/scorpiontrader16-ai/youtuop-1/services/auth/internal/postgres"
+    "github.com/scorpiontrader16-ai/AmniX-Finance/services/auth/internal/postgres"
 )
 
 type BruteForceProtection struct {

@@ -1,6 +1,6 @@
 # ============================================================
 # k8s/base/monitoring/slo.yaml
-# SLO Definitions — youtuop-1 Platform
+# SLO Definitions — AmniX-Finance Platform
 # مطلوب قبل M8 (Auth service) و M11 (API Management)
 # ============================================================
 

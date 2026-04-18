@@ -1,7 +1,7 @@
 # ============================================================
 # ✏️ MODIFIED — .github/workflows/image-sign.yml
 # GAP-04: Supply Chain Security — Build + Sign + SBOM
-# Repo: scorpiontrader16-ai/youtuop-1
+# Repo: scorpiontrader16-ai/AmniX-Finance
 # ============================================================
 name: Build, Sign & SBOM
 

@@ -5,7 +5,7 @@ import (
     "encoding/json"
     "log/slog"
 
-	"github.com/scorpiontrader16-ai/youtuop-1/internal/platform/profiling"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/internal/platform/profiling"
     "net"
     "net/http"
     "os"
@@ -27,8 +27,8 @@ import (
     "google.golang.org/grpc"
     "google.golang.org/grpc/health/grpc_health_v1"
 
-    "github.com/scorpiontrader16-ai/youtuop-1/services/search/internal/elastic"
-    "github.com/scorpiontrader16-ai/youtuop-1/services/search/internal/postgres"
+    "github.com/scorpiontrader16-ai/AmniX-Finance/services/search/internal/elastic"
+    "github.com/scorpiontrader16-ai/AmniX-Finance/services/search/internal/postgres"
 )
 
 var version = "dev"

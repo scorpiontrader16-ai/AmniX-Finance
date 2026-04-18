@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/scorpiontrader16-ai/youtuop-1/internal/platform/profiling"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/internal/platform/profiling"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -32,8 +32,8 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/scorpiontrader16-ai/youtuop-1/services/realtime/internal/consumer"
-	"github.com/scorpiontrader16-ai/youtuop-1/services/realtime/internal/hub"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/services/realtime/internal/consumer"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/services/realtime/internal/hub"
 )
 
 var version = "dev"

@@ -1,4 +1,4 @@
-module github.com/scorpiontrader16-ai/youtuop-1/services/auth
+module github.com/scorpiontrader16-ai/AmniX-Finance/services/auth
 
 go 1.24.0
 
@@ -59,6 +59,6 @@ require (
 // باقي الـ indirect يتم إضافتها تلقائياً عند تشغيل go mod tidy
 )
 
-require github.com/scorpiontrader16-ai/youtuop-1/internal/platform v0.0.0
+require github.com/scorpiontrader16-ai/AmniX-Finance/internal/platform v0.0.0
 
-replace github.com/scorpiontrader16-ai/youtuop-1/internal/platform => ../../internal/platform
+replace github.com/scorpiontrader16-ai/AmniX-Finance/internal/platform => ../../internal/platform

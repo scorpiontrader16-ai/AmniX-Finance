@@ -6,7 +6,7 @@ package main
 // ╚══════════════════════════════════════════════════════════════════╝
 
 import (
-	"github.com/scorpiontrader16-ai/youtuop-1/internal/platform/profiling"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/internal/platform/profiling"
 	"context"
 	"os"
 	"os/signal"
@@ -20,7 +20,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
-	"github.com/scorpiontrader16-ai/youtuop-1/services/tenant-operator/internal/onboarding"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/services/tenant-operator/internal/onboarding"
 )
 
 func main() {

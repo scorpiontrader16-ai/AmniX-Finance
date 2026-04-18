@@ -7,7 +7,7 @@ resources:
   - ../../../base/jobs
 
 images:
-  - name: ghcr.io/scorpiontrader16-ai/youtuop-1/jobs
+  - name: ghcr.io/scorpiontrader16-ai/AmniX-Finance/jobs
     newTag: "0.1.0"
 
 commonLabels:

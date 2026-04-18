@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	appjwt "github.com/scorpiontrader16-ai/youtuop-1/services/auth/internal/jwt"
+	appjwt "github.com/scorpiontrader16-ai/AmniX-Finance/services/auth/internal/jwt"
 )
 
 // tierLevel maps tier names to numeric levels for ordered comparison.

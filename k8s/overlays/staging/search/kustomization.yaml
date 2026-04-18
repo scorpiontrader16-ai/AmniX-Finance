@@ -7,7 +7,7 @@ resources:
   - ../../../base/search
 
 images:
-  - name: ghcr.io/scorpiontrader16-ai/youtuop-1/search
+  - name: ghcr.io/scorpiontrader16-ai/AmniX-Finance/search
     newTag: "0.1.0"
 
 commonLabels:

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/scorpiontrader16-ai/youtuop-1/internal/platform/profiling"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/internal/platform/profiling"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,8 +22,8 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.uber.org/zap"
 
-	"github.com/scorpiontrader16-ai/youtuop-1/services/notifications/internal/postgres"
-	resendclient "github.com/scorpiontrader16-ai/youtuop-1/services/notifications/internal/resend"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/services/notifications/internal/postgres"
+	resendclient "github.com/scorpiontrader16-ai/AmniX-Finance/services/notifications/internal/resend"
 )
 
 var version = "dev"

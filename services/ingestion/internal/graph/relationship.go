@@ -13,7 +13,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/scorpiontrader16-ai/youtuop-1/services/ingestion/internal/postgres"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/services/ingestion/internal/postgres"
 )
 
 // Relationship represents a directed, weighted edge in the entity graph.

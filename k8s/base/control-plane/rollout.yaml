@@ -53,7 +53,7 @@ spec:
             name: legal-pages
       containers:
         - name: control-plane
-          image: ghcr.io/scorpiontrader16-ai/youtuop-1/control-plane:1.0.0
+          image: ghcr.io/scorpiontrader16-ai/AmniX-Finance/control-plane:1.0.0
           ports:
             - name: grpc
               containerPort: 8093

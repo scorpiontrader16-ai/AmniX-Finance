@@ -12,7 +12,7 @@ import (
 
 // geoKey — unexported struct key للـ context
 // استخدام struct بدلاً من string يمنع أي تعارض مع packages أخرى
-// لا تعارض مع contextKey string type الموجودة في context_keys.go
+// geoKey uses a struct{} key — no collision with platform context keys (which also use struct{} types after F-AUTH62)
 type geoKey struct{}
 
 // GeoMiddleware يستخرج الـ region من X-Geo-Region header

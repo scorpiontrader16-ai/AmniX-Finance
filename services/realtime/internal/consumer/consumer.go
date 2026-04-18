@@ -11,7 +11,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 	"go.uber.org/zap"
 
-	"github.com/scorpiontrader16-ai/youtuop-1/services/realtime/internal/hub"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/services/realtime/internal/hub"
 )
 
 // Config لـ Redpanda consumer

@@ -11,7 +11,7 @@ import (
     "go.uber.org/zap"
     "golang.org/x/crypto/bcrypt"
 
-    "github.com/scorpiontrader16-ai/youtuop-1/services/auth/internal/postgres"
+    "github.com/scorpiontrader16-ai/AmniX-Finance/services/auth/internal/postgres"
 )
 
 type Notifier interface {

@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/scorpiontrader16-ai/youtuop-1/services/auth/internal/postgres"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/services/auth/internal/postgres"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 )

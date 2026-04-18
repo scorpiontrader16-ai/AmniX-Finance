@@ -1,4 +1,4 @@
-module github.com/scorpiontrader16-ai/youtuop-1/services/tenant-operator
+module github.com/scorpiontrader16-ai/AmniX-Finance/services/tenant-operator
 
 go 1.24.0
 
@@ -61,6 +61,6 @@ require (
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
 
-require github.com/scorpiontrader16-ai/youtuop-1/internal/platform v0.0.0
+require github.com/scorpiontrader16-ai/AmniX-Finance/internal/platform v0.0.0
 
-replace github.com/scorpiontrader16-ai/youtuop-1/internal/platform => ../../internal/platform
+replace github.com/scorpiontrader16-ai/AmniX-Finance/internal/platform => ../../internal/platform

@@ -11,7 +11,7 @@
 //   make proto        (runs: buf generate)
 // ─────────────────────────────────────────────────────────────────────────────
 
-module github.com/scorpiontrader16-ai/youtuop-1
+module github.com/scorpiontrader16-ai/AmniX-Finance
 
 go 1.24.0
 

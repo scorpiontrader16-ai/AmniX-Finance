@@ -59,7 +59,7 @@ spec:
             secretName: billing-tls-secret
       containers:
         - name: billing
-          image: ghcr.io/scorpiontrader16-ai/youtuop-1/billing:1.0.0
+          image: ghcr.io/scorpiontrader16-ai/AmniX-Finance/billing:1.0.0
           ports:
             - name: http
               containerPort: 9093
@@ -70,7 +70,7 @@ spec:
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: otel-collector:4317
             - name: FRONTEND_URL
-              value: "https://app.youtuop-1.com"
+              value: "https://app.AmniX-Finance.com"
             # ── M5: مسارات TLS ─────────────────────────────────────
             - name: TLS_CERT_PATH
               value: /etc/tls/tls.crt

@@ -14,7 +14,7 @@ import (
 	"io"
 	"log/slog"
 
-	"github.com/scorpiontrader16-ai/youtuop-1/internal/platform/profiling"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/internal/platform/profiling"
 	"net/http"
 	"net/url"
 	"os"
@@ -35,11 +35,11 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 
-	appjwt "github.com/scorpiontrader16-ai/youtuop-1/services/auth/internal/jwt"
-	"github.com/scorpiontrader16-ai/youtuop-1/services/auth/internal/handlers"
-	"github.com/scorpiontrader16-ai/youtuop-1/services/auth/internal/middleware"
-	"github.com/scorpiontrader16-ai/youtuop-1/services/auth/internal/postgres"
-	"github.com/scorpiontrader16-ai/youtuop-1/services/auth/internal/rbac"
+	appjwt "github.com/scorpiontrader16-ai/AmniX-Finance/services/auth/internal/jwt"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/services/auth/internal/handlers"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/services/auth/internal/middleware"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/services/auth/internal/postgres"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/services/auth/internal/rbac"
 )
 
 var version = "dev"

@@ -1,4 +1,4 @@
-module github.com/scorpiontrader16-ai/youtuop-1/internal/platform
+module github.com/scorpiontrader16-ai/AmniX-Finance/internal/platform
 
 go 1.24.0
 

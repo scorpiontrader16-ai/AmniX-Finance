@@ -1,4 +1,4 @@
-module github.com/scorpiontrader16-ai/youtuop-1/services/hydration
+module github.com/scorpiontrader16-ai/AmniX-Finance/services/hydration
 
 go 1.24.0
 
@@ -18,13 +18,13 @@ require (
 
 require (
 	github.com/grafana/pyroscope-go v1.2.8 // indirect
-	github.com/scorpiontrader16-ai/youtuop-1 v0.0.0-00010101000000-000000000000
+	github.com/scorpiontrader16-ai/AmniX-Finance v0.0.0-00010101000000-000000000000
 )
 
-replace github.com/scorpiontrader16-ai/youtuop-1 => ../..
+replace github.com/scorpiontrader16-ai/AmniX-Finance => ../..
 
 toolchain go1.24.13
 
-require github.com/scorpiontrader16-ai/youtuop-1/internal/platform v0.0.0
+require github.com/scorpiontrader16-ai/AmniX-Finance/internal/platform v0.0.0
 
-replace github.com/scorpiontrader16-ai/youtuop-1/internal/platform => ../../internal/platform
+replace github.com/scorpiontrader16-ai/AmniX-Finance/internal/platform => ../../internal/platform

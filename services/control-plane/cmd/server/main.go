@@ -5,7 +5,7 @@ import (
     "encoding/json"
     "log/slog"
 
-	"github.com/scorpiontrader16-ai/youtuop-1/internal/platform/profiling"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/internal/platform/profiling"
     "net"
     "net/http"
     "os"

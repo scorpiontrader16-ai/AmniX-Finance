@@ -20,7 +20,7 @@
 #           - $values/infra/falco/platform-rules.yaml   # ← this file
 #         values: |
 #           <existing inline values>
-#     - repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
+#     - repoURL: https://github.com/scorpiontrader16-ai/AmniX-Finance.git
 #       targetRevision: main
 #       ref: values                                      # ← provides $values
 #

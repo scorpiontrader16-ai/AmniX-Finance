@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"strings"
 
-	appjwt "github.com/scorpiontrader16-ai/youtuop-1/services/auth/internal/jwt"
+	appjwt "github.com/scorpiontrader16-ai/AmniX-Finance/services/auth/internal/jwt"
 )
 
 // TenantContextMiddleware validates the Bearer token and injects the

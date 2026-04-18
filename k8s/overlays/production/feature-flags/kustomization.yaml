@@ -7,7 +7,7 @@ resources:
   - ../../../base/feature-flags
 
 images:
-  - name: ghcr.io/scorpiontrader16-ai/youtuop-1/feature-flags
+  - name: ghcr.io/scorpiontrader16-ai/AmniX-Finance/feature-flags
     newTag: "0.1.0"
 
 commonLabels:

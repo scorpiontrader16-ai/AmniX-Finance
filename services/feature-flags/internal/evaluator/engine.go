@@ -8,7 +8,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/scorpiontrader16-ai/youtuop-1/services/feature-flags/internal/postgres"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/services/feature-flags/internal/postgres"
 )
 
 const cacheTTL = 30 * time.Second

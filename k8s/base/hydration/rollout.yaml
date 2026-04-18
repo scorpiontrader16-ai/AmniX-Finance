@@ -54,7 +54,7 @@ spec:
             secretName: hydration-tls-secret
       containers:
         - name: hydration
-          image: ghcr.io/scorpiontrader16-ai/youtuop-1/hydration:1.0.0
+          image: ghcr.io/scorpiontrader16-ai/AmniX-Finance/hydration:1.0.0
           ports:
             - name: http
               containerPort: 9092

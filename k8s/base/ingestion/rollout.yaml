@@ -90,7 +90,7 @@ spec:
             medium: Memory
       containers:
         - name: ingestion
-          image: ghcr.io/scorpiontrader16-ai/youtuop-1/ingestion:1.0.0
+          image: ghcr.io/scorpiontrader16-ai/AmniX-Finance/ingestion:1.0.0
           ports:
             - name: grpc
               containerPort: 8090

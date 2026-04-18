@@ -9,7 +9,7 @@ import (
 	"github.com/stripe/stripe-go/v81"
 	"go.uber.org/zap"
 
-	"github.com/scorpiontrader16-ai/youtuop-1/services/billing/internal/postgres"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/services/billing/internal/postgres"
 )
 
 // Handler يعالج كل Stripe webhook events

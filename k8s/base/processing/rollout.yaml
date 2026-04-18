@@ -69,7 +69,7 @@ spec:
             secretName: processing-tls-secret
       containers:
         - name: processing
-          image: ghcr.io/scorpiontrader16-ai/youtuop-1/processing:1.0.0
+          image: ghcr.io/scorpiontrader16-ai/AmniX-Finance/processing:1.0.0
           ports:
             - name: grpc
               containerPort: 50051

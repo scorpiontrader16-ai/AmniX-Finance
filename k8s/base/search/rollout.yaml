@@ -49,7 +49,7 @@ spec:
                   app: search
       containers:
         - name: search
-          image: ghcr.io/scorpiontrader16-ai/youtuop-1/search:1.0.0
+          image: ghcr.io/scorpiontrader16-ai/AmniX-Finance/search:1.0.0
           ports:
             - name: grpc
               containerPort: 8095

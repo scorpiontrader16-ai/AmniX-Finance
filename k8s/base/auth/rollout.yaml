@@ -62,7 +62,7 @@ spec:
             secretName: auth-tls-secret
       containers:
         - name: auth
-          image: ghcr.io/scorpiontrader16-ai/youtuop-1/auth:1.0.0
+          image: ghcr.io/scorpiontrader16-ai/AmniX-Finance/auth:1.0.0
           ports:
             - name: http
               containerPort: 9092
@@ -79,7 +79,7 @@ spec:
             - name: KEYCLOAK_CLIENT_ID
               value: youtuop-backend
             - name: JWT_ISSUER
-              value: https://auth.youtuop-1.com
+              value: https://auth.AmniX-Finance.com
             - name: JWT_PRIVATE_KEY_PATH
               value: /secrets/jwt/private.pem
             # ── M5: Crypto Agility — يمكن تغييره لـ ES256 بدون إعادة build ──

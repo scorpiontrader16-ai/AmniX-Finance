@@ -37,13 +37,14 @@ import (
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 
-	chwriter "github.com/scorpiontrader16-ai/youtuop-1/services/ingestion/internal/clickhouse"
-	"github.com/scorpiontrader16-ai/youtuop-1/services/ingestion/internal/coldstore"
-	kafkapkg "github.com/scorpiontrader16-ai/youtuop-1/services/ingestion/internal/kafka"
-	"github.com/scorpiontrader16-ai/youtuop-1/services/ingestion/internal/config"
-	"github.com/scorpiontrader16-ai/youtuop-1/internal/platform/profiling"
-	"github.com/scorpiontrader16-ai/youtuop-1/services/ingestion/internal/postgres"
-	"github.com/scorpiontrader16-ai/youtuop-1/services/ingestion/internal/tiering"
+	chwriter "github.com/scorpiontrader16-ai/AmniX-Finance/services/ingestion/internal/clickhouse"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/services/ingestion/internal/coldstore"
+	kafkapkg "github.com/scorpiontrader16-ai/AmniX-Finance/services/ingestion/internal/kafka"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/services/ingestion/internal/config"
+        "github.com/scorpiontrader16-ai/AmniX-Finance/internal/platform/contextkeys"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/internal/platform/profiling"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/services/ingestion/internal/postgres"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/services/ingestion/internal/tiering"
 )
 
 var version = "dev"
@@ -491,15 +492,14 @@ func tenantInterceptor(log *zap.Logger) grpc.UnaryServerInterceptor {
 			)
 			return nil, ErrMissingTenant
 		}
-		ctx = context.WithValue(ctx, contextKeyTenantID{}, vals[0])
+		ctx = context.WithValue(ctx, contextkeys.TenantIDKey, vals[0])
 		return handler(ctx, req)
 	}
 }
 
-type contextKeyTenantID struct{}
 
 func TenantIDFromContext(ctx context.Context) (string, bool) {
-	v, ok := ctx.Value(contextKeyTenantID{}).(string)
+	v, ok := ctx.Value(contextkeys.TenantIDKey).(string)
 	return v, ok && v != ""
 }
 

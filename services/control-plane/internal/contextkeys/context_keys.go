@@ -11,7 +11,7 @@ package contextkeys
 // ╚══════════════════════════════════════════════════════════════════╝
 
 import (
-	"github.com/scorpiontrader16-ai/youtuop-1/internal/platform/contextkeys"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/internal/platform/contextkeys"
 )
 
 // الأسماء المحلية تفوِّض للـ shared package — handlers لا تحتاج تغيير

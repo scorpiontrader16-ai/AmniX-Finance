@@ -33,7 +33,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
+    repoURL: https://github.com/scorpiontrader16-ai/AmniX-Finance.git
     targetRevision: main
     path: infra/argocd/apps
   destination:
@@ -96,7 +96,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
+    repoURL: https://github.com/scorpiontrader16-ai/AmniX-Finance.git
     targetRevision: main
     path: k8s/base/kyverno
   destination:
@@ -167,7 +167,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
+    repoURL: https://github.com/scorpiontrader16-ai/AmniX-Finance.git
     targetRevision: main
     path: k8s/base/vault
   destination:
@@ -195,7 +195,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
+    repoURL: https://github.com/scorpiontrader16-ai/AmniX-Finance.git
     targetRevision: main
     path: k8s/base/api-gateway
   destination:
@@ -229,7 +229,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
+    repoURL: https://github.com/scorpiontrader16-ai/AmniX-Finance.git
     targetRevision: main
     path: infra/argocd/applicationsets
   destination:
@@ -263,7 +263,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
+    repoURL: https://github.com/scorpiontrader16-ai/AmniX-Finance.git
     targetRevision: main
     path: k8s/overlays/production/ingestion
   destination:
@@ -300,7 +300,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
+    repoURL: https://github.com/scorpiontrader16-ai/AmniX-Finance.git
     targetRevision: main
     path: k8s/overlays/production/processing
   destination:
@@ -334,7 +334,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
+    repoURL: https://github.com/scorpiontrader16-ai/AmniX-Finance.git
     targetRevision: main
     path: k8s/base/monitoring
   destination:
@@ -366,7 +366,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
+    repoURL: https://github.com/scorpiontrader16-ai/AmniX-Finance.git
     targetRevision: main
     path: k8s/base/falco
   destination:
@@ -413,7 +413,7 @@ spec:
   project: default
   sources:
     # ── Source 1: Git repo — provides $values reference ──────────────────
-    - repoURL: https://github.com/scorpiontrader16-ai/youtuop-1.git
+    - repoURL: https://github.com/scorpiontrader16-ai/AmniX-Finance.git
       targetRevision: main
       ref: values
 

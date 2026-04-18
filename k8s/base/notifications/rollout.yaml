@@ -49,7 +49,7 @@ spec:
                   app: notifications
       containers:
         - name: notifications
-          image: ghcr.io/scorpiontrader16-ai/youtuop-1/notifications:1.0.0
+          image: ghcr.io/scorpiontrader16-ai/AmniX-Finance/notifications:1.0.0
           ports:
             - name: http
               containerPort: 9094
@@ -62,7 +62,7 @@ spec:
             - name: EMAIL_FROM_NAME
               value: "youtuop Platform"
             - name: EMAIL_FROM_ADDR
-              value: "noreply@youtuop-1.com"
+              value: "noreply@AmniX-Finance.com"
           envFrom:
             - secretRef:
                 name: notifications-secrets

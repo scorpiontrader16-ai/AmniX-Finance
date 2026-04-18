@@ -10,7 +10,7 @@ resources:
 # الـ image tag بيتحدث تلقائياً من release.yml
 # لا تعدّل :latest يدوياً — استخدم semantic version أو SHA digest
 images:
-  - name: ghcr.io/scorpiontrader16-ai/youtuop-1/ingestion
+  - name: ghcr.io/scorpiontrader16-ai/AmniX-Finance/ingestion
     newTag: "0.1.17"
 patches:
   - target:

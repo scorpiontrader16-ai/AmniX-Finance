@@ -9,7 +9,7 @@ resources:
 
 images:
   - name: ghcr.io/placeholder/data-quality
-    newName: ghcr.io/scorpiontrader16-ai/youtuop-1/data-quality
+    newName: ghcr.io/scorpiontrader16-ai/AmniX-Finance/data-quality
     newTag: "0.1.0"
 
 commonLabels:

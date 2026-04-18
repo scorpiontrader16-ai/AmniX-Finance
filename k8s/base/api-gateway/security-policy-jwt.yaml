@@ -16,7 +16,7 @@ spec:
   jwt:
     providers:
       - name: youtuop-auth
-        issuer: "https://auth.youtuop-1.com"
+        issuer: "https://auth.AmniX-Finance.com"
         remoteJWKS:
           uri: "https://auth-stable.platform.svc.cluster.local:9092/.well-known/jwks.json"
         claimToHeaders:
@@ -51,7 +51,7 @@ spec:
   jwt:
     providers:
       - name: youtuop-auth
-        issuer: "https://auth.youtuop-1.com"
+        issuer: "https://auth.AmniX-Finance.com"
         remoteJWKS:
           uri: "https://auth-stable.platform.svc.cluster.local:9092/.well-known/jwks.json"
         claimToHeaders:
@@ -84,7 +84,7 @@ spec:
   jwt:
     providers:
       - name: youtuop-auth
-        issuer: "https://auth.youtuop-1.com"
+        issuer: "https://auth.AmniX-Finance.com"
         remoteJWKS:
           uri: "https://auth-stable.platform.svc.cluster.local:9092/.well-known/jwks.json"
         claimToHeaders:
@@ -119,7 +119,7 @@ spec:
   jwt:
     providers:
       - name: youtuop-auth
-        issuer: "https://auth.youtuop-1.com"
+        issuer: "https://auth.AmniX-Finance.com"
         remoteJWKS:
           uri: "https://auth-stable.platform.svc.cluster.local:9092/.well-known/jwks.json"
         claimToHeaders:

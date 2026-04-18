@@ -7,7 +7,7 @@ resources:
   - ../../../base/analytics
 
 images:
-  - name: ghcr.io/scorpiontrader16-ai/youtuop-1/analytics
+  - name: ghcr.io/scorpiontrader16-ai/AmniX-Finance/analytics
     newTag: "0.1.0"
 
 commonLabels:

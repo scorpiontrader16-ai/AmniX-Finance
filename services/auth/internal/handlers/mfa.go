@@ -11,8 +11,8 @@ import (
 	twilioApi "github.com/twilio/twilio-go/rest/api/v2010"
 	"go.uber.org/zap"
 
-	"github.com/scorpiontrader16-ai/youtuop-1/services/auth/internal/middleware"
-	"github.com/scorpiontrader16-ai/youtuop-1/services/auth/internal/postgres"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/services/auth/internal/middleware"
+	"github.com/scorpiontrader16-ai/AmniX-Finance/services/auth/internal/postgres"
 )
 
 type MFAHandler struct {

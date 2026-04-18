@@ -40,7 +40,7 @@ data:
             annotations:
               summary: "Ingestion error rate > 5%"
               description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
-              runbook: "https://github.com/scorpiontrader16-ai/youtuop-1/wiki/runbooks/ingestion-errors"
+              runbook: "https://github.com/scorpiontrader16-ai/AmniX-Finance/wiki/runbooks/ingestion-errors"
 
           - alert: IngestionHighLatency
             expr: |

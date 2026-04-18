@@ -49,7 +49,7 @@ spec:
                   app: developer-portal
       containers:
         - name: developer-portal
-          image: ghcr.io/scorpiontrader16-ai/youtuop-1/developer-portal:1.0.0
+          image: ghcr.io/scorpiontrader16-ai/AmniX-Finance/developer-portal:1.0.0
           ports:
             - name: http
               containerPort: 9097
@@ -60,7 +60,7 @@ spec:
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: otel-collector:4317
             - name: PORTAL_URL
-              value: "https://developers.youtuop-1.com"
+              value: "https://developers.AmniX-Finance.com"
           envFrom:
             - secretRef:
                 name: developer-portal-secrets

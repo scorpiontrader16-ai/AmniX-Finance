@@ -30,7 +30,7 @@ spec:
       containers:
         - name: hydration
           # الـ image tag بيتحدث تلقائياً من release.yml workflow
-          image: ghcr.io/scorpiontrader16-ai/youtuop-1/hydration:1.0.0
+          image: ghcr.io/scorpiontrader16-ai/AmniX-Finance/hydration:1.0.0
           env:
             - name: PROCESSING_ADDR
               value: "processing-stable:50051"
