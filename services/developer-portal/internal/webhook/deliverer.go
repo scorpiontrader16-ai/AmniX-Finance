@@ -19,6 +19,18 @@ const (
 	baseDelay       = 1 * time.Second
 )
 
+// sharedHTTPClient هو عميل HTTP مشترك يُعاد استخدامه لكل طلبات الـ webhook.
+// إعادة استخدام الاتصالات يحسن الأداء ويقلل استهلاك المقابس.
+var sharedHTTPClient = &http.Client{
+    Timeout: 30 * time.Second,
+    Transport: &http.Transport{
+        MaxIdleConns:        100,
+        MaxIdleConnsPerHost: 10,
+        IdleConnTimeout:     90 * time.Second,
+    },
+}
+
+
 // Event حدث بيتبعت للـ webhook
 type Event struct {
 	ID        string         `json:"id"`
@@ -86,7 +98,7 @@ func deliverOnce(ctx context.Context, url, secretHash string, payload []byte, at
 	req.Header.Set("User-Agent", "youtuop-webhook/1.0")
 	req.Header.Set("X-Youtuop-Event-Attempt", fmt.Sprintf("%d", attempt))
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := sharedHTTPClient
 	resp, err := client.Do(req)
 	durationMS := time.Since(start).Milliseconds()
 
