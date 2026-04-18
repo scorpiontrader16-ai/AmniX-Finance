@@ -8,7 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-    "log"
+    "log/slog"
 	"net/http"
 	"time"
 )
@@ -52,6 +52,15 @@ type DeliveryResult struct {
 }
 
 // Deliver يرسل event لـ webhook URL مع HMAC signature و retry
+var packageLogger = slog.Default()
+
+// SetLogger يضبط الـ logger المركزي للحزمة. يجب استدعاؤه من main().
+func SetLogger(l *slog.Logger) {
+    if l != nil {
+        packageLogger = l
+    }
+}
+
 func Deliver(ctx context.Context, url, secretHash string, event *Event) *DeliveryResult {
 	payload, err := json.Marshal(event)
 	if err != nil {
@@ -114,7 +123,7 @@ func deliverOnce(ctx context.Context, url, secretHash string, payload []byte, at
 
 	var bodyBuf bytes.Buffer
 		if _, err := bodyBuf.ReadFrom(resp.Body); err != nil {
-			log.Printf("webhook read error: %v", err)
+			packageLogger.ErrorContext(ctx, "webhook read error", "error", err)
 		}
 
 	success := resp.StatusCode >= 200 && resp.StatusCode < 300
