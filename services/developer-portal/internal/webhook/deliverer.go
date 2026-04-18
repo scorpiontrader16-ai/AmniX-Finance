@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	signatureHeader = "X-Youtuop-Signature-256"
-	timestampHeader = "X-Youtuop-Timestamp"
+	signatureHeader = "X-AmniX-Finance-Signature-256"
+	timestampHeader = "X-AmniX-Finance-Timestamp"
 	maxRetries      = 3
 	baseDelay       = 1 * time.Second
 )
@@ -106,7 +106,7 @@ func deliverOnce(ctx context.Context, url, secretHash string, payload []byte, at
 	req.Header.Set(signatureHeader, "sha256="+sig)
 	req.Header.Set(timestampHeader, ts)
 	req.Header.Set("User-Agent", "AmniX-Finance-webhook/1.0")
-	req.Header.Set("X-Youtuop-Event-Attempt", fmt.Sprintf("%d", attempt))
+	req.Header.Set("X-AmniX-Finance-Event-Attempt", fmt.Sprintf("%d", attempt))
 
 	client := sharedHTTPClient
 	resp, err := client.Do(req)
