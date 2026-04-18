@@ -113,7 +113,7 @@ aws route53 change-resource-record-sets \
     "Changes": [{
       "Action": "UPSERT",
       "ResourceRecordSet": {
-        "Name": "api.youtuop-1.com",
+        "Name": "api.amnixfinance.com",
         "Type": "A",
         "AliasTarget": {
           "HostedZoneId": "'$DR_LB_ZONE_ID'",
@@ -125,12 +125,12 @@ aws route53 change-resource-record-sets \
   }'
 
 # 2. تحقق من الـ DNS propagation
-dig api.youtuop-1.com
+dig api.amnixfinance.com
 
 # 3. اختبر الـ health endpoints
-curl -f https://api.youtuop-1.com/healthz
-curl -f https://api.youtuop-1.com/healthz/auth
-curl -f https://api.youtuop-1.com/healthz/ingestion
+curl -f https://api.amnixfinance.com/healthz
+curl -f https://api.amnixfinance.com/healthz/auth
+curl -f https://api.amnixfinance.com/healthz/ingestion
 ```
 
 ### Phase 5 — Validation (120–240 min)
@@ -144,7 +144,7 @@ kubectl get pods -n platform
 # Victoria Metrics dashboard: http://grafana.monitoring.svc.cluster.local
 
 # 3. اختبر الـ auth flow
-curl -X POST https://api.youtuop-1.com/v1/auth/login \
+curl -X POST https://api.amnixfinance.com/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"code":"test","redirect_uri":"test","tenant_slug":"test"}'
 

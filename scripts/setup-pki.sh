@@ -235,7 +235,7 @@ main() {
 
     echo ""
     echo "============================================"
-    echo "  youtuop-1 PKI Setup — mTLS Configuration"
+    echo "  AmniX-Finance PKI Setup — mTLS Configuration"
     echo "============================================"
     echo ""
 

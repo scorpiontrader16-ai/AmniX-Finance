@@ -15,7 +15,7 @@
 
 1. **GitHub Security Advisories** (مفضّل):
    - افتح: `Security → Advisories → Report a vulnerability`
-   - الرابط: `https://github.com/scorpiontrader16-ai/youtuop-1/security/advisories/new`
+   - الرابط: `https://github.com/scorpiontrader16-ai/AmniX-Finance/security/advisories/new`
 
 ## ماذا تُضمّن في التقرير
 

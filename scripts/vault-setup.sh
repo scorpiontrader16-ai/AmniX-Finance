@@ -138,7 +138,7 @@ vault_status() {
 }
 
 main() {
-    echo ""; echo "=========================================="; echo "  youtuop-1 Vault Setup — GAP-07"; echo "=========================================="; echo ""
+    echo ""; echo "=========================================="; echo "  AmniX-Finance Vault Setup — GAP-07"; echo "=========================================="; echo ""
     check_prerequisites
     setup_port_forward
     trap cleanup EXIT

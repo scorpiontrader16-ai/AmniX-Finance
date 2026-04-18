@@ -82,7 +82,7 @@ main() {
     local mode="${1:-setup}"
     echo ""
     echo "══════════════════════════════════════════════════"
-    echo "  youtuop-1 — M5 cert-manager Setup"
+    echo "  AmniX-Finance — M5 cert-manager Setup"
     echo "══════════════════════════════════════════════════"
     echo ""
     case "$mode" in
