@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+    "log"
 	"net/http"
 	"time"
 )
@@ -95,7 +96,7 @@ func deliverOnce(ctx context.Context, url, secretHash string, payload []byte, at
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(signatureHeader, "sha256="+sig)
 	req.Header.Set(timestampHeader, ts)
-	req.Header.Set("User-Agent", "youtuop-webhook/1.0")
+	req.Header.Set("User-Agent", "AmniX-Finance-webhook/1.0")
 	req.Header.Set("X-Youtuop-Event-Attempt", fmt.Sprintf("%d", attempt))
 
 	client := sharedHTTPClient
@@ -112,7 +113,9 @@ func deliverOnce(ctx context.Context, url, secretHash string, payload []byte, at
 	defer resp.Body.Close()
 
 	var bodyBuf bytes.Buffer
-	bodyBuf.ReadFrom(resp.Body) //nolint:errcheck
+		if _, err := bodyBuf.ReadFrom(resp.Body); err != nil {
+			log.Printf("webhook read error: %v", err)
+		}
 
 	success := resp.StatusCode >= 200 && resp.StatusCode < 300
 	return &DeliveryResult{
@@ -139,9 +142,3 @@ func Verify(secretHash, timestamp, signature string, payload []byte) bool {
 	return hmac.Equal([]byte(signature), []byte(expected))
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
