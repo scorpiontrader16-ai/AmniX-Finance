@@ -108,6 +108,7 @@ func main() {
 
 	// GAP-11: Continuous profiling
 	profiling.Init(slogLogger, "platform.developer-portal")
+	webhook.SetLogger(slogLogger)
 
 
 	startupCtx, startupCancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -400,7 +401,7 @@ func main() {
 			TenantID:  tenantID,
 			CreatedAt: time.Now(),
 			Data: map[string]any{
-				"message": "This is a test event from youtuop Developer Portal",
+				"message": "This is a test event from AmniX-Finance Developer Portal",
 			},
 		}
 
