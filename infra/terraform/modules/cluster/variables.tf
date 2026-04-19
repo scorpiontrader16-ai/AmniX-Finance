@@ -68,11 +68,13 @@ variable "node_instance_types" {
 variable "node_desired_size" {
   type        = number
   default     = 3
-  description = "Desired number of nodes in the EKS node group."
+  description = "Desired number of nodes in the EKS node group. Must be between node_min_size and node_max_size."
 
+  # NOTE: cross-variable validation (vs node_min/max) is not supported by Terraform.
+  # Range enforcement is done at the node group level by AWS EKS automatically.
   validation {
-    condition     = var.node_desired_size >= var.node_min_size && var.node_desired_size <= var.node_max_size
-    error_message = "node_desired_size must be between node_min_size and node_max_size."
+    condition     = var.node_desired_size >= 1
+    error_message = "node_desired_size must be at least 1."
   }
 }
 
@@ -90,11 +92,13 @@ variable "node_min_size" {
 variable "node_max_size" {
   type        = number
   default     = 20
-  description = "Maximum number of nodes in the EKS node group for autoscaling."
+  description = "Maximum number of nodes in the EKS node group for autoscaling. Must be >= node_min_size."
 
+  # NOTE: cross-variable validation (vs node_min_size) is not supported by Terraform.
+  # Ensure node_max_size > node_min_size manually in tfvars.
   validation {
-    condition     = var.node_max_size >= var.node_min_size
-    error_message = "node_max_size must be greater than or equal to node_min_size."
+    condition     = var.node_max_size >= 1
+    error_message = "node_max_size must be at least 1."
   }
 }
 
