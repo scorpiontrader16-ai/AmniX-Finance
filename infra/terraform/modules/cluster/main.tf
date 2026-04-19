@@ -1,3 +1,9 @@
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  Full path: infra/terraform/modules/cluster/main.tf              ║
+# ║  Fix F-TF01-B: replaced all hardcoded values with var.*          ║
+# ║  Fix F-TF04: access_config, upgrade_policy, encryption complete  ║
+# ╚══════════════════════════════════════════════════════════════════╝
+
 terraform {
   required_providers {
     aws = {
@@ -15,14 +21,6 @@ terraform {
   }
 }
 
-
-
-
-
-
-# أضف متغير للـ CIDRs المسموح بها للوصول لـ EKS API
-# غيّر القيمة دي لـ IP الخاص بـ VPN أو bastion host عندك
-
 # ── EKS Cluster ──────────────────────────────────────────────────────────
 resource "aws_eks_cluster" "main" {
   name     = var.cluster_name
@@ -33,20 +31,17 @@ resource "aws_eks_cluster" "main" {
     subnet_ids              = var.subnet_ids
     endpoint_private_access = true
     endpoint_public_access  = true
-    # مقيّد بـ VPN/bastion IPs فقط — مش 0.0.0.0/0
-    public_access_cidrs = var.eks_public_access_cidrs
+    public_access_cidrs     = var.eks_public_access_cidrs
   }
 
   # F-TF04: API mode enables EKS Access Entries — replaces legacy aws-auth ConfigMap.
   # bootstrap_cluster_creator_admin_permissions = false — no implicit admin.
-  # All cluster access must be granted explicitly via aws_eks_access_entry resources.
   access_config {
     authentication_mode                         = "API"
     bootstrap_cluster_creator_admin_permissions = false
   }
 
   # F-TF04: EXTENDED support = 14 months per minor version vs 4 months standard.
-  # Reduces forced upgrade pressure and emergency maintenance windows in production.
   upgrade_policy {
     support_type = "EXTENDED"
   }
@@ -77,19 +72,20 @@ resource "aws_eks_cluster" "main" {
 }
 
 # ── Node Group — ARM64 ───────────────────────────────────────────────────
+# F-TF01-B: instance_types, desired/min/max extracted to variables.tf
 resource "aws_eks_node_group" "arm64" {
   cluster_name    = aws_eks_cluster.main.name
   node_group_name = "${var.cluster_name}-arm64"
   node_role_arn   = aws_iam_role.node.arn
   subnet_ids      = var.subnet_ids
 
-  instance_types = ["r8g.xlarge", "r8g.2xlarge"]
+  instance_types = var.node_instance_types
   ami_type       = "AL2023_ARM_64_STANDARD"
 
   scaling_config {
-    desired_size = 3
-    min_size     = 2
-    max_size     = 20
+    desired_size = var.node_desired_size
+    min_size     = var.node_min_size
+    max_size     = var.node_max_size
   }
 
   update_config {
@@ -165,6 +161,7 @@ resource "aws_iam_role_policy_attachment" "node_policies" {
 }
 
 # ── OIDC — GitHub Actions ────────────────────────────────────────────────
+# F-TF01-B: github org/repo/branch extracted to variables — no hardcoded repo path
 resource "aws_iam_openid_connect_provider" "github" {
   url             = "https://token.actions.githubusercontent.com"
   client_id_list  = ["sts.amazonaws.com"]
@@ -181,7 +178,7 @@ resource "aws_iam_role" "github_actions" {
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = {
-          "token.actions.githubusercontent.com:sub" = "repo:scorpiontrader16-ai/AmniX-Finance:ref:refs/heads/main"
+          "token.actions.githubusercontent.com:sub" = "repo:${var.github_org}/${var.github_repo}:ref:refs/heads/${var.github_branch}"
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
         }
       }
@@ -317,11 +314,12 @@ resource "aws_s3_account_public_access_block" "main" {
 }
 
 # ── Helm — cert-manager ──────────────────────────────────────────────────
+# F-TF01-B: version extracted to var.cert_manager_version
 resource "helm_release" "cert_manager" {
   name             = "cert-manager"
   repository       = "https://charts.jetstack.io"
   chart            = "cert-manager"
-  version          = "v1.14.4"
+  version          = var.cert_manager_version
   namespace        = "cert-manager"
   create_namespace = true
 
@@ -339,11 +337,12 @@ resource "helm_release" "cert_manager" {
 }
 
 # ── Helm — external-secrets ──────────────────────────────────────────────
+# F-TF01-B: version extracted to var.external_secrets_version
 resource "helm_release" "external_secrets" {
   name             = "external-secrets"
   repository       = "https://charts.external-secrets.io"
   chart            = "external-secrets"
-  version          = "0.9.13"
+  version          = var.external_secrets_version
   namespace        = "external-secrets"
   create_namespace = true
 

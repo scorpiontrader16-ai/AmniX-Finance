@@ -1,15 +1,12 @@
-
-
-
-
-
-
-# H-05: ec2-based vault IAM role removed — all policies migrated to vault_irsa (OIDC)
-# This eliminates the ec2 principal which allowed any EC2 instance to assume the role
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  Full path: infra/terraform/modules/vault/main.tf                ║
+# ║  Fix VAULT-REGION-BUG: region = var.aws_region (was "us-east-1")║
+# ║  Fix F-TF01-B: vault_version + vault_ha_replicas → var.*         ║
+# ║  H-05: ec2 vault role removed — all policies on vault_irsa OIDC  ║
+# ╚══════════════════════════════════════════════════════════════════╝
 
 resource "aws_iam_role_policy" "vault_kms" {
   name = "vault-kms-unseal"
-  # H-05: migrated from ec2 vault role to OIDC vault_irsa role
   role = aws_iam_role.vault_irsa.name
   policy = jsonencode({
     Version = "2012-10-17"
@@ -50,7 +47,6 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "vault" {
 
 resource "aws_iam_role_policy" "vault_s3" {
   name = "vault-s3"
-  # H-05: migrated from ec2 vault role to OIDC vault_irsa role
   role = aws_iam_role.vault_irsa.name
   policy = jsonencode({
     Version = "2012-10-17"
@@ -91,9 +87,6 @@ resource "aws_iam_role" "vault_irsa" {
   tags = { Environment = var.environment }
 }
 
-# vault_irsa_kms attachment removed — vault_kms policy now attached directly
-# to vault_irsa role (H-05 fix: removed ec2 principal, using OIDC only)
-
 resource "aws_iam_role" "eso" {
   name = "${var.cluster_name}-eso"
   assume_role_policy = jsonencode({
@@ -130,17 +123,20 @@ resource "aws_iam_role_policy" "eso_secrets" {
         ]
         Resource = "arn:aws:secretsmanager:*:*:secret:platform/*"
       }
-      # H-06: ListSecrets on Resource:* removed — ESO uses explicit platform/* paths
-      # and does not require account-wide list permissions
     ]
   })
 }
 
+# VAULT-REGION-BUG FIX: storage.s3.region now uses var.aws_region.
+# Previous hardcoded "us-east-1" caused Vault to fail in eu-west-1 because
+# the S3 bucket is created in the provider region (eu-west-1) but Vault
+# attempted to connect to it via the us-east-1 endpoint.
+# F-TF01-B: version → var.vault_version, replicas → var.vault_ha_replicas
 resource "helm_release" "vault" {
   name             = "vault"
   repository       = "https://helm.releases.hashicorp.com"
   chart            = "vault"
-  version          = "0.27.0"
+  version          = var.vault_version
   namespace        = "vault"
   create_namespace = true
 
@@ -154,7 +150,7 @@ resource "helm_release" "vault" {
         }
         ha = {
           enabled  = true
-          replicas = 3
+          replicas = var.vault_ha_replicas
           raft = {
             enabled = true
           }
@@ -166,7 +162,7 @@ resource "helm_release" "vault" {
         storage = {
           s3 = {
             bucket = aws_s3_bucket.vault.bucket
-            region = "us-east-1"
+            region = var.aws_region
           }
         }
       }
@@ -180,7 +176,6 @@ resource "helm_release" "vault" {
 }
 
 output "vault_role_arn" {
-  # H-05: updated to vault_irsa — ec2-based vault role removed
   value = aws_iam_role.vault_irsa.arn
 }
 

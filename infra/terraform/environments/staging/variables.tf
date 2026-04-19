@@ -1,8 +1,8 @@
 # ╔══════════════════════════════════════════════════════════════════╗
 # ║  Full path: infra/terraform/environments/staging/variables.tf    ║
-# ║  Status: ✏️ MODIFIED                                             ║
-# ║  Fix F-TF01: moved all hardcoded values from main.tf into here   ║
+# ║  Fix F-TF01: all hardcoded values from main.tf declared here     ║
 # ║  Fix F-TF18: all variables for this environment declared here    ║
+# ║  Fix F-TF01-B: added github_org + github_repo for cluster module ║
 # ╚══════════════════════════════════════════════════════════════════╝
 
 variable "aws_region" {
@@ -23,8 +23,6 @@ variable "cluster_name" {
   default     = "platform-staging"
 }
 
-# ── Networking ────────────────────────────────────────────────────────────
-
 variable "vpc_cidr" {
   description = "VPC CIDR block for staging"
   type        = string
@@ -43,37 +41,36 @@ variable "public_subnets" {
   default     = ["10.1.101.0/24", "10.1.102.0/24"]
 }
 
-# ── EKS API Access ───────────────────────────────────────────────────────
-# H-03: Currently set to full VPC CIDR — intentional, pending bastion host.
-# Narrow to VPN/bastion CIDR when bastion is provisioned.
-
 variable "eks_public_access_cidrs" {
-  description = "CIDRs allowed to access EKS API server. Narrow to VPN/bastion when bastion is ready."
+  description = "CIDRs allowed to access EKS API server."
   type        = list(string)
   default     = ["10.1.0.0/16"]
 }
 
-# ── Database Ingress ──────────────────────────────────────────────────────
-# H-04: Currently set to full VPC CIDR — intentional, pending stable node groups.
-# Narrow to EKS node subnet CIDR once node groups are stable.
-
 variable "eks_node_cidr" {
-  description = "CIDR permitted to reach PostgreSQL on port 5432. Narrow to EKS node subnet once stable."
+  description = "CIDR permitted to reach PostgreSQL on port 5432."
   type        = string
   default     = "10.1.0.0/16"
 }
 
-# ── Redpanda ─────────────────────────────────────────────────────────────
-# broker_count = 1 is correct for staging — no HA required.
-
 variable "redpanda_broker_count" {
-  description = "Number of Redpanda broker EC2 instances. 1 for staging (no HA), 3 for production."
+  description = "Number of Redpanda broker EC2 instances. 1 for staging."
   type        = number
   default     = 1
 }
 
 variable "redpanda_instance_type" {
-  description = "EC2 instance type for Redpanda brokers. NVMe-optimized (im4gn) recommended."
+  description = "EC2 instance type for Redpanda brokers."
   type        = string
   default     = "im4gn.xlarge"
+}
+
+variable "github_org" {
+  description = "GitHub organization name for OIDC trust policy in cluster module."
+  type        = string
+}
+
+variable "github_repo" {
+  description = "GitHub repository name for OIDC trust policy in cluster module."
+  type        = string
 }

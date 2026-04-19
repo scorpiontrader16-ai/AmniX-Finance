@@ -1,9 +1,8 @@
-# ── Variables ────────────────────────────────────────────────────────────
-
-
-
-
-
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  Full path: infra/terraform/modules/redpanda/main.tf             ║
+# ║  Fix SG-BUG: replaced 10.0.0.0/8 with var.vpc_cidr              ║
+# ║  Fix F-TF01-B: mirrormaker instance_type + volume sizes → var.*  ║
+# ╚══════════════════════════════════════════════════════════════════╝
 
 # ── S3 Tiered Storage ────────────────────────────────────────────────────
 resource "aws_s3_bucket" "tiered" {
@@ -36,37 +35,39 @@ resource "aws_s3_bucket_lifecycle_configuration" "tiered" {
 }
 
 # ── Security Group ───────────────────────────────────────────────────────
+# SG-BUG FIX: was ["10.0.0.0/8"] — a supernet covering all RFC-1918 10.x space.
+# Replaced with var.vpc_cidr — scoped to this VPC only.
 resource "aws_security_group" "redpanda" {
   name        = "${var.cluster_name}-redpanda"
-  description = "Redpanda broker access"
+  description = "Redpanda broker access — restricted to VPC CIDR only"
   vpc_id      = var.vpc_id
 
   ingress {
-    description = "Kafka API from VPC"
+    description = "Kafka API from VPC only"
     from_port   = 9092
     to_port     = 9092
     protocol    = "tcp"
-    cidr_blocks = ["10.0.0.0/8"]
+    cidr_blocks = [var.vpc_cidr]
   }
 
   ingress {
-    description = "Redpanda Admin API from VPC"
+    description = "Redpanda Admin API from VPC only"
     from_port   = 9644
     to_port     = 9644
     protocol    = "tcp"
-    cidr_blocks = ["10.0.0.0/8"]
+    cidr_blocks = [var.vpc_cidr]
   }
 
   ingress {
-    description = "Schema Registry from VPC"
+    description = "Schema Registry from VPC only"
     from_port   = 8081
     to_port     = 8081
     protocol    = "tcp"
-    cidr_blocks = ["10.0.0.0/8"]
+    cidr_blocks = [var.vpc_cidr]
   }
 
   ingress {
-    description = "Inter-broker communication"
+    description = "Inter-broker communication (self)"
     from_port   = 33145
     to_port     = 33145
     protocol    = "tcp"
@@ -141,6 +142,7 @@ data "aws_ami" "redpanda" {
 data "aws_region" "current" {}
 
 # ── EC2 Instances — Redpanda Brokers ─────────────────────────────────────
+# F-TF01-B: broker_volume_size extracted to variable
 resource "aws_instance" "redpanda" {
   count = var.broker_count
 
@@ -153,7 +155,7 @@ resource "aws_instance" "redpanda" {
 
   root_block_device {
     volume_type           = "gp3"
-    volume_size           = 100
+    volume_size           = var.broker_volume_size
     encrypted             = true
     delete_on_termination = true
   }
@@ -166,11 +168,11 @@ resource "aws_instance" "redpanda" {
   }))
 
   tags = {
-    Name                 = "${var.cluster_name}-redpanda-${count.index}"
-    Environment          = var.environment
-    Role                 = "redpanda-broker"
-    BrokerId             = count.index
-    "redpanda:cluster"   = var.cluster_name
+    Name               = "${var.cluster_name}-redpanda-${count.index}"
+    Environment        = var.environment
+    Role               = "redpanda-broker"
+    BrokerId           = count.index
+    "redpanda:cluster" = var.cluster_name
   }
 
   lifecycle {
@@ -179,9 +181,10 @@ resource "aws_instance" "redpanda" {
 }
 
 # ── MirrorMaker 2 Instance — Cross-Region Sync ───────────────────────────
+# F-TF01-B: instance_type + volume_size extracted to variables
 resource "aws_instance" "mirrormaker2" {
   ami           = data.aws_ami.redpanda.id
-  instance_type = "c7g.large"
+  instance_type = var.mirrormaker_instance_type
 
   subnet_id              = var.private_subnet_ids[0]
   vpc_security_group_ids = [aws_security_group.redpanda.id]
@@ -189,7 +192,7 @@ resource "aws_instance" "mirrormaker2" {
 
   root_block_device {
     volume_type           = "gp3"
-    volume_size           = 50
+    volume_size           = var.mirrormaker_volume_size
     encrypted             = true
     delete_on_termination = true
   }

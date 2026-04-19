@@ -1,7 +1,7 @@
 # ╔══════════════════════════════════════════════════════════════════╗
 # ║  Full path: infra/terraform/modules/databases/variables.tf       ║
-# ║  Status: ✏️ MODIFIED                                             ║
 # ║  Fix F-TF01: removed leaked resource block                       ║
+# ║  Fix F-TF01-B: extracted all hardcoded values to variables       ║
 # ║  Fix F-TF05: postgres_instance default → db.t4g.medium           ║
 # ║  Fix F-TF06: multi_az default → true (production-safe)           ║
 # ║  Fix F-TF03-egress: added vpc_cidr for restricted egress rule    ║
@@ -17,8 +17,6 @@ variable "vpc_id" {
   description = "VPC ID from networking module"
 }
 
-# F-TF03-egress: used to restrict the RDS security group egress rule to within
-# the VPC only. Without this, egress was open to 0.0.0.0/0 — unnecessary for RDS.
 variable "vpc_cidr" {
   type        = string
   description = "VPC CIDR block — restricts RDS security group egress to within the VPC only."
@@ -50,8 +48,6 @@ variable "environment" {
 }
 
 # F-TF05: default changed from db.r8g.large → db.t4g.medium
-# db.r8g.large costs ~$0.48/hr — dangerous default for dev/staging.
-# Production must explicitly set db.r8g.large in its module call.
 variable "postgres_instance" {
   type        = string
   default     = "db.t4g.medium"
@@ -64,10 +60,62 @@ variable "postgres_instance" {
 }
 
 # F-TF06: default changed from false → true
-# Multi-AZ off by default is a production footgun — any forgotten override loses HA.
-# Staging explicitly sets multi_az = false in its module call, so no impact there.
 variable "multi_az" {
   type        = bool
   default     = true
   description = "Enable Multi-AZ for RDS. Default: true (production-safe). Non-production must explicitly set to false."
+}
+
+# F-TF01-B: extracted hardcoded engine version
+variable "engine_version" {
+  type        = string
+  default     = "16.2"
+  description = "PostgreSQL engine version. Verify compatibility with EKS version before upgrading."
+}
+
+# F-TF01-B: extracted hardcoded storage values
+variable "allocated_storage" {
+  type        = number
+  default     = 100
+  description = "Initial allocated storage in GB for the RDS instance."
+
+  validation {
+    condition     = var.allocated_storage >= 20
+    error_message = "allocated_storage must be at least 20 GB."
+  }
+}
+
+variable "max_allocated_storage" {
+  type        = number
+  default     = 1000
+  description = "Maximum storage autoscaling limit in GB. Must be greater than allocated_storage."
+
+  validation {
+    condition     = var.max_allocated_storage > var.allocated_storage
+    error_message = "max_allocated_storage must be greater than allocated_storage."
+  }
+}
+
+# F-TF01-B: extracted hardcoded maintenance windows
+variable "backup_window" {
+  type        = string
+  default     = "03:00-04:00"
+  description = "Daily backup window (UTC). Format: hh24:mi-hh24:mi. Must not overlap maintenance_window."
+}
+
+variable "maintenance_window" {
+  type        = string
+  default     = "Mon:04:00-Mon:05:00"
+  description = "Weekly maintenance window (UTC). Format: ddd:hh24:mi-ddd:hh24:mi."
+}
+
+variable "monitoring_interval" {
+  type        = number
+  default     = 60
+  description = "Enhanced monitoring interval in seconds. 0 = disabled. Valid: 0,1,5,10,15,30,60."
+
+  validation {
+    condition     = contains([0, 1, 5, 10, 15, 30, 60], var.monitoring_interval)
+    error_message = "monitoring_interval must be one of: 0, 1, 5, 10, 15, 30, 60."
+  }
 }

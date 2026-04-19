@@ -1,6 +1,8 @@
 # ╔══════════════════════════════════════════════════════════════════╗
 # ║  Full path: infra/terraform/modules/redpanda/variables.tf        ║
 # ║  Fix F-TF01: removed leaked resource blocks                      ║
+# ║  Fix F-TF01-B: added vpc_cidr, mirrormaker vars, volume vars     ║
+# ║  Fix SG-BUG: vpc_cidr replaces hardcoded 10.0.0.0/8             ║
 # ╚══════════════════════════════════════════════════════════════════╝
 
 variable "cluster_name" {
@@ -11,7 +13,12 @@ variable "cluster_name" {
 variable "broker_count" {
   type        = number
   default     = 3
-  description = "Number of Redpanda broker EC2 instances"
+  description = "Number of Redpanda broker EC2 instances. Minimum 3 for production HA."
+
+  validation {
+    condition     = var.broker_count >= 1
+    error_message = "broker_count must be at least 1."
+  }
 }
 
 variable "instance_type" {
@@ -30,7 +37,54 @@ variable "vpc_id" {
   description = "VPC ID from networking module"
 }
 
+variable "vpc_cidr" {
+  type        = string
+  description = "VPC CIDR block — used to restrict Redpanda security group ingress to VPC traffic only. Replaces the insecure 10.0.0.0/8 supernet."
+
+  validation {
+    condition     = can(cidrhost(var.vpc_cidr, 0))
+    error_message = "vpc_cidr must be a valid CIDR block (e.g. 10.0.0.0/16)."
+  }
+
+  validation {
+    condition     = !contains(["0.0.0.0/0", "::/0", "10.0.0.0/8"], var.vpc_cidr)
+    error_message = "vpc_cidr must be a specific VPC CIDR, not a supernet or open CIDR."
+  }
+}
+
 variable "private_subnet_ids" {
   type        = list(string)
   description = "Private subnet IDs from networking module"
+}
+
+# ── MirrorMaker2 ──────────────────────────────────────────────────────────
+# F-TF01-B: extracted hardcoded c7g.large instance type
+variable "mirrormaker_instance_type" {
+  type        = string
+  default     = "c7g.large"
+  description = "EC2 instance type for MirrorMaker2 cross-region sync instance. Graviton3-optimized."
+}
+
+# ── Storage ───────────────────────────────────────────────────────────────
+# F-TF01-B: extracted hardcoded volume sizes
+variable "broker_volume_size" {
+  type        = number
+  default     = 100
+  description = "Root EBS volume size in GB for each Redpanda broker instance."
+
+  validation {
+    condition     = var.broker_volume_size >= 50
+    error_message = "broker_volume_size must be at least 50 GB."
+  }
+}
+
+variable "mirrormaker_volume_size" {
+  type        = number
+  default     = 50
+  description = "Root EBS volume size in GB for the MirrorMaker2 instance."
+
+  validation {
+    condition     = var.mirrormaker_volume_size >= 20
+    error_message = "mirrormaker_volume_size must be at least 20 GB."
+  }
 }

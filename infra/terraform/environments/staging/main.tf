@@ -1,8 +1,9 @@
 # ╔══════════════════════════════════════════════════════════════════╗
 # ║  Full path: infra/terraform/environments/staging/main.tf         ║
-# ║  Status: ✏️ MODIFIED                                             ║
-# ║  Fix F-TF01: replaced every hardcoded CIDR / count / type        ║
-# ║              with the corresponding var.* reference               ║
+# ║  Fix F-TF01: all hardcoded values replaced with var.*            ║
+# ║  Fix VAULT-REGION-BUG: aws_region passed to vault module         ║
+# ║  Fix SG-BUG: vpc_cidr passed to redpanda module                  ║
+# ║  Fix F-TF01-B: github_org/repo passed to cluster module          ║
 # ╚══════════════════════════════════════════════════════════════════╝
 
 terraform {
@@ -25,7 +26,6 @@ provider "aws" {
   }
 }
 
-# ── VPC ──────────────────────────────────────────────────────────────────
 module "vpc" {
   source          = "../../modules/networking"
   name            = "platform-staging"
@@ -36,18 +36,17 @@ module "vpc" {
   cluster_name    = var.cluster_name
 }
 
-# ── EKS Cluster ──────────────────────────────────────────────────────────
 module "cluster" {
   source                  = "../../modules/cluster"
   cluster_name            = var.cluster_name
   environment             = "staging"
   vpc_id                  = module.vpc.vpc_id
   subnet_ids              = module.vpc.private_subnet_ids
-  # H-03: see var.eks_public_access_cidrs in variables.tf
   eks_public_access_cidrs = var.eks_public_access_cidrs
+  github_org              = var.github_org
+  github_repo             = var.github_repo
 }
 
-# ── Databases ─────────────────────────────────────────────────────────────
 module "databases" {
   source        = "../../modules/databases"
   cluster_name  = var.cluster_name
@@ -55,13 +54,10 @@ module "databases" {
   vpc_id        = module.vpc.vpc_id
   vpc_cidr      = var.vpc_cidr
   subnet_ids    = module.vpc.private_subnet_ids
-  # Staging does not require Multi-AZ — explicit override of production-safe default (true)
   multi_az      = false
-  # H-04: see var.eks_node_cidr in variables.tf
   eks_node_cidr = var.eks_node_cidr
 }
 
-# ── Redpanda ──────────────────────────────────────────────────────────────
 module "redpanda" {
   source             = "../../modules/redpanda"
   cluster_name       = var.cluster_name
@@ -69,10 +65,10 @@ module "redpanda" {
   broker_count       = var.redpanda_broker_count
   instance_type      = var.redpanda_instance_type
   vpc_id             = module.vpc.vpc_id
+  vpc_cidr           = var.vpc_cidr
   private_subnet_ids = module.vpc.private_subnet_ids
 }
 
-# ── Vault ─────────────────────────────────────────────────────────────────
 module "vault" {
   source            = "../../modules/vault"
   cluster_name      = var.cluster_name
@@ -80,9 +76,9 @@ module "vault" {
   kms_key_id        = module.cluster.kms_key_id
   oidc_provider_arn = module.cluster.oidc_provider_arn
   oidc_provider_url = module.cluster.oidc_provider_url
+  aws_region        = var.aws_region
 }
 
-# ── Outputs ───────────────────────────────────────────────────────────────
 output "eso_role_arn" {
   value = module.vault.eso_role_arn
 }

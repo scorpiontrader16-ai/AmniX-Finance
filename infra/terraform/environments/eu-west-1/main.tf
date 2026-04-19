@@ -1,11 +1,14 @@
-# ============================================================
-# infra/terraform/environments/eu-west-1/main.tf
-# FIX: إزالة backend "s3" {} — موجود بالفعل في backend.tf
-# Terraform لا يسمح بـ backend configuration في أكثر من ملف
-# ============================================================
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  Full path: infra/terraform/environments/eu-west-1/main.tf       ║
+# ║  Fix F-TF01: all hardcoded values replaced with var.*            ║
+# ║  Fix ARN-BUG: replication destination uses var.results_sync_     ║
+# ║    bucket_us — removes hardcoded ARN in 2 places                 ║
+# ║  Fix X-01: replication resource lives in eu-west-1 (destination) ║
+# ║  Fix VAULT-REGION-BUG: aws_region passed to vault module         ║
+# ║  Fix SG-BUG: vpc_cidr passed to redpanda module                  ║
+# ╚══════════════════════════════════════════════════════════════════╝
+
 terraform {
-  # FIX: backend "s3" {} تم حذفه من هنا
-  # الـ backend config موجود في backend.tf في نفس الـ directory
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -35,49 +38,57 @@ provider "aws" {
   }
 }
 
+# ── VPC ──────────────────────────────────────────────────────────────────
 module "vpc" {
   source          = "../../modules/networking"
   name            = "platform-eu"
-  cidr            = "10.2.0.0/16"
+  cidr            = var.vpc_cidr
   azs             = var.availability_zones
-  private_subnets = ["10.2.1.0/24", "10.2.2.0/24", "10.2.3.0/24"]
-  public_subnets  = ["10.2.101.0/24", "10.2.102.0/24", "10.2.103.0/24"]
+  private_subnets = var.private_subnets
+  public_subnets  = var.public_subnets
   cluster_name    = var.cluster_name
 }
 
+# ── EKS Cluster ──────────────────────────────────────────────────────────
 module "cluster" {
-  source                  = "../../modules/cluster"
-  cluster_name            = var.cluster_name
-  environment             = "production"
-  vpc_id                  = module.vpc.vpc_id
-  subnet_ids              = module.vpc.private_subnet_ids
-  # H-03: restricted to eu-west-1 VPC only — update to VPN CIDR when bastion is ready
-  eks_public_access_cidrs = ["10.2.0.0/16"]
+  source                   = "../../modules/cluster"
+  cluster_name             = var.cluster_name
+  environment              = "production"
+  vpc_id                   = module.vpc.vpc_id
+  subnet_ids               = module.vpc.private_subnet_ids
+  eks_public_access_cidrs  = var.eks_public_access_cidrs
+  github_org               = var.github_org
+  github_repo              = var.github_repo
 }
 
+# ── Databases ─────────────────────────────────────────────────────────────
 module "databases" {
-  source         = "../../modules/databases"
-  cluster_name   = var.cluster_name
-  environment    = "production"
-  vpc_id         = module.vpc.vpc_id
-  subnet_ids     = module.vpc.private_subnet_ids
+  source            = "../../modules/databases"
+  cluster_name      = var.cluster_name
+  environment       = "production"
+  vpc_id            = module.vpc.vpc_id
+  vpc_cidr          = var.vpc_cidr
+  subnet_ids        = module.vpc.private_subnet_ids
   multi_az          = true
-  # F-TF05: explicit override required — default changed to db.t4g.medium for dev safety
   postgres_instance = "db.r8g.large"
-  # H-04: restricted to eu-west-1 private subnets only
-  eks_node_cidr     = "10.2.0.0/16"
+  eks_node_cidr     = var.eks_node_cidr
 }
 
+# ── Redpanda ──────────────────────────────────────────────────────────────
+# SG-BUG FIX: vpc_cidr passed so Redpanda SG restricts to this VPC only
 module "redpanda" {
   source             = "../../modules/redpanda"
   cluster_name       = var.cluster_name
   environment        = "production"
-  broker_count       = 3
-  instance_type      = "im4gn.xlarge"
+  broker_count       = var.redpanda_broker_count
+  instance_type      = var.redpanda_instance_type
   vpc_id             = module.vpc.vpc_id
+  vpc_cidr           = var.vpc_cidr
   private_subnet_ids = module.vpc.private_subnet_ids
 }
 
+# ── Vault ─────────────────────────────────────────────────────────────────
+# VAULT-REGION-BUG FIX: aws_region passed so Vault S3 storage uses eu-west-1
 module "vault" {
   source            = "../../modules/vault"
   cluster_name      = var.cluster_name
@@ -85,11 +96,12 @@ module "vault" {
   kms_key_id        = module.cluster.kms_key_id
   oidc_provider_arn = module.cluster.oidc_provider_arn
   oidc_provider_url = module.cluster.oidc_provider_url
+  aws_region        = var.aws_region
 }
 
-# ── Cross-Region Results Sync — EU Side ──────────────────
+# ── Cross-Region Results Sync — EU Side ──────────────────────────────────
 resource "aws_s3_bucket" "results_sync" {
-  bucket = "platform-results-sync-eu-west-1"
+  bucket = var.results_sync_bucket_eu
   tags = {
     Purpose            = "cross-region-results-sync"
     DataClassification = "results-only"
@@ -112,6 +124,9 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "results_sync" {
   }
 }
 
+# ARN-BUG FIX: destination bucket ARN built from var.results_sync_bucket_us.
+# Previously hardcoded as "arn:aws:s3:::platform-results-sync-us-east-1" in 2 places.
+# Now driven by variable — consistent with production tfvars results_sync_bucket value.
 resource "aws_s3_bucket_replication_configuration" "results_sync" {
   bucket = aws_s3_bucket.results_sync.id
   role   = aws_iam_role.replication.arn
@@ -122,7 +137,7 @@ resource "aws_s3_bucket_replication_configuration" "results_sync" {
       prefix = "results/"
     }
     destination {
-      bucket        = "arn:aws:s3:::platform-results-sync-us-east-1"
+      bucket        = "arn:aws:s3:::${var.results_sync_bucket_us}"
       storage_class = "STANDARD"
     }
   }
@@ -157,7 +172,7 @@ resource "aws_iam_role_policy" "replication" {
         Action = [
           "s3:GetObjectVersionForReplication",
           "s3:GetObjectVersionAcl",
-          "s3:GetObjectVersionTagging"
+          "s3:GetObjectVersionTagging",
         ]
         Resource = "${aws_s3_bucket.results_sync.arn}/*"
       },
@@ -166,15 +181,21 @@ resource "aws_iam_role_policy" "replication" {
         Action = [
           "s3:ReplicateObject",
           "s3:ReplicateDelete",
-          "s3:ReplicateTags"
+          "s3:ReplicateTags",
         ]
-        Resource = "arn:aws:s3:::platform-results-sync-us-east-1/*"
+        Resource = "arn:aws:s3:::${var.results_sync_bucket_us}/*"
       }
     ]
   })
 }
 
-# ── Outputs ───────────────────────────────────────────────
+# ── Postgres Cross-Region Backup Replication ──────────────────────────────
+resource "aws_db_instance_automated_backups_replication" "postgres_us" {
+  source_db_instance_arn = var.source_db_instance_arn
+  retention_period       = var.postgres_replica_retention_days
+}
+
+# ── Outputs ───────────────────────────────────────────────────────────────
 output "cluster_endpoint" {
   value = module.cluster.cluster_endpoint
 }

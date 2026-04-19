@@ -2,6 +2,7 @@
 # ║  Full path: infra/terraform/modules/cluster/variables.tf         ║
 # ║  Fix F-TF01: removed leaked resource blocks                      ║
 # ║  Fix F-TF02: added 4 validation rules to eks_public_access_cidrs ║
+# ║  Fix F-TF01-B: extracted all hardcoded values to variables        ║
 # ╚══════════════════════════════════════════════════════════════════╝
 
 variable "cluster_name" {
@@ -11,7 +12,7 @@ variable "cluster_name" {
 
 variable "cluster_version" {
   type        = string
-  default     = "1.29"
+  default     = "1.31"
   description = "Kubernetes version for the EKS cluster"
 }
 
@@ -34,27 +35,101 @@ variable "eks_public_access_cidrs" {
   type        = list(string)
   description = "CIDRs allowed to access EKS API server. Must be restricted to VPN/bastion IPs only. No default — must be set explicitly per environment."
 
-  # F-TF02: block open internet access
   validation {
     condition     = !contains(var.eks_public_access_cidrs, "0.0.0.0/0")
     error_message = "eks_public_access_cidrs must NOT contain 0.0.0.0/0. Restrict to VPN or bastion CIDRs only."
   }
 
-  # F-TF02: block IPv6 open access
   validation {
     condition     = !contains(var.eks_public_access_cidrs, "::/0")
     error_message = "eks_public_access_cidrs must NOT contain ::/0. Restrict to VPN or bastion CIDRs only."
   }
 
-  # F-TF02: all entries must be valid CIDR notation
   validation {
     condition     = alltrue([for cidr in var.eks_public_access_cidrs : can(cidrhost(cidr, 0))])
     error_message = "All entries in eks_public_access_cidrs must be valid CIDR blocks (e.g. 10.0.1.0/24)."
   }
 
-  # F-TF02: list must not be empty
   validation {
     condition     = length(var.eks_public_access_cidrs) > 0
     error_message = "eks_public_access_cidrs must contain at least one CIDR. Do not leave EKS public access unrestricted."
   }
+}
+
+# ── Node Group ────────────────────────────────────────────────────────────
+# F-TF01-B: extracted from hardcoded values in aws_eks_node_group.arm64
+
+variable "node_instance_types" {
+  type        = list(string)
+  default     = ["r8g.xlarge", "r8g.2xlarge"]
+  description = "EC2 instance types for the ARM64 node group. Graviton3-optimized."
+}
+
+variable "node_desired_size" {
+  type        = number
+  default     = 3
+  description = "Desired number of nodes in the EKS node group."
+
+  validation {
+    condition     = var.node_desired_size >= var.node_min_size && var.node_desired_size <= var.node_max_size
+    error_message = "node_desired_size must be between node_min_size and node_max_size."
+  }
+}
+
+variable "node_min_size" {
+  type        = number
+  default     = 2
+  description = "Minimum number of nodes in the EKS node group."
+
+  validation {
+    condition     = var.node_min_size >= 1
+    error_message = "node_min_size must be at least 1."
+  }
+}
+
+variable "node_max_size" {
+  type        = number
+  default     = 20
+  description = "Maximum number of nodes in the EKS node group for autoscaling."
+
+  validation {
+    condition     = var.node_max_size >= var.node_min_size
+    error_message = "node_max_size must be greater than or equal to node_min_size."
+  }
+}
+
+# ── GitHub Actions OIDC ───────────────────────────────────────────────────
+# F-TF01-B: extracted hardcoded repo path from IAM assume role policy.
+# Format: org/repo — do NOT include refs/heads/ prefix.
+
+variable "github_org" {
+  type        = string
+  description = "GitHub organization name for OIDC trust policy (e.g. my-org)."
+}
+
+variable "github_repo" {
+  type        = string
+  description = "GitHub repository name for OIDC trust policy (e.g. AmniX-Finance)."
+}
+
+variable "github_branch" {
+  type        = string
+  default     = "main"
+  description = "GitHub branch for OIDC trust policy. Only this branch can assume the GitHub Actions role."
+}
+
+# ── Helm Chart Versions ───────────────────────────────────────────────────
+# F-TF01-B: extracted from hardcoded helm_release version fields.
+# Pin versions explicitly — never use latest to avoid unexpected upgrades in production.
+
+variable "cert_manager_version" {
+  type        = string
+  default     = "v1.14.4"
+  description = "Helm chart version for cert-manager. Pin explicitly. See: https://github.com/cert-manager/cert-manager/releases"
+}
+
+variable "external_secrets_version" {
+  type        = string
+  default     = "0.9.13"
+  description = "Helm chart version for external-secrets-operator. Pin explicitly. See: https://github.com/external-secrets/external-secrets/releases"
 }

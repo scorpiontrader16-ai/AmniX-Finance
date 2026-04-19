@@ -1,8 +1,8 @@
 # ╔══════════════════════════════════════════════════════════════════╗
 # ║  Full path: infra/terraform/modules/databases/main.tf            ║
-# ║  Status: ✏️ MODIFIED                                             ║
 # ║  Fix F-TF03: precondition blocks on postgres security group      ║
-# ║  Fix F-TF03-egress: egress restricted from 0.0.0.0/0 → vpc_cidr ║
+# ║  Fix F-TF03-egress: egress restricted to vpc_cidr                ║
+# ║  Fix F-TF01-B: all hardcoded values replaced with var.*          ║
 # ╚══════════════════════════════════════════════════════════════════╝
 
 resource "aws_db_subnet_group" "main" {
@@ -24,10 +24,6 @@ resource "aws_security_group" "postgres" {
     cidr_blocks = [var.eks_node_cidr]
   }
 
-  # F-TF03-egress: restricted from 0.0.0.0/0 to var.vpc_cidr only.
-  # RDS does not initiate connections outside the VPC.
-  # Limiting to vpc_cidr covers Multi-AZ standby replication traffic
-  # while blocking all unintended outbound paths.
   egress {
     description = "Allow outbound within VPC only (Multi-AZ replication traffic)"
     from_port   = 0
@@ -38,8 +34,6 @@ resource "aws_security_group" "postgres" {
 
   tags = { Environment = var.environment }
 
-  # F-TF03: precondition validates eks_node_cidr before Terraform creates the SG.
-  # Plan-time failure is better than a misconfigured firewall rule in production.
   lifecycle {
     precondition {
       condition     = can(cidrhost(var.eks_node_cidr, 0))
@@ -55,11 +49,11 @@ resource "aws_security_group" "postgres" {
 resource "aws_db_instance" "postgres" {
   identifier     = "${var.cluster_name}-postgres"
   engine         = "postgres"
-  engine_version = "16.2"
+  engine_version = var.engine_version
   instance_class = var.postgres_instance
 
-  allocated_storage     = 100
-  max_allocated_storage = 1000
+  allocated_storage     = var.allocated_storage
+  max_allocated_storage = var.max_allocated_storage
   storage_type          = "gp3"
   storage_encrypted     = true
 
@@ -75,12 +69,12 @@ resource "aws_db_instance" "postgres" {
 
   deletion_protection     = var.environment == "production"
   backup_retention_period = var.environment == "production" ? 30 : 7
-  backup_window           = "03:00-04:00"
-  maintenance_window      = "Mon:04:00-Mon:05:00"
+  backup_window           = var.backup_window
+  maintenance_window      = var.maintenance_window
   skip_final_snapshot     = var.environment != "production"
 
   performance_insights_enabled = true
-  monitoring_interval          = 60
+  monitoring_interval          = var.monitoring_interval
 
   tags = { Environment = var.environment }
 }
