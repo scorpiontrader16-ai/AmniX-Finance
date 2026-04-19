@@ -77,10 +77,10 @@ module "cluster" {
   eks_public_access_cidrs         = var.eks_public_access_cidrs
   github_org                      = var.github_org
   github_repo                     = var.github_repo
-  # C-01/C-02: false — production us-east-1 owns the account-global resources.
-  create_account_global_resources = false
-  # H-03: false — production us-east-1 trail already covers eu-west-1 events.
-  cloudtrail_multi_region         = false
+  # C-01/C-02: Must be false for eu-west-1 — production us-east-1 owns account-global resources.
+  create_account_global_resources = var.create_account_global_resources
+  # H-03: Must be false for eu-west-1 — production us-east-1 trail covers all regions.
+  cloudtrail_multi_region         = var.cloudtrail_multi_region
 }
 
 # ── Databases ─────────────────────────────────────────────────────────────
