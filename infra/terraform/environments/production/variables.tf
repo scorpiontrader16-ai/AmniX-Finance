@@ -22,12 +22,6 @@ variable "cluster_name" {
   default     = "platform-prod"
 }
 
-variable "enable_mena_region" {
-  description = "Enable MENA region for data sovereignty (Bahrain / UAE)"
-  type        = bool
-  default     = false
-}
-
 variable "vpc_cidr" {
   description = "VPC CIDR block for production"
   type        = string
