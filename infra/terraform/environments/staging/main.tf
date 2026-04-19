@@ -1,6 +1,8 @@
 # ╔══════════════════════════════════════════════════════════════════╗
 # ║  Full path: infra/terraform/environments/staging/main.tf         ║
 # ║  Fix F-TF01: all hardcoded values replaced with var.*            ║
+# ║  Fix F-TF01-C: multi_az hardcoded literal → var.multi_az         ║
+# ║  Fix BUG-STAGING-PROVIDERS: helm + tls providers added           ║
 # ║  Fix VAULT-REGION-BUG: aws_region passed to vault module         ║
 # ║  Fix SG-BUG: vpc_cidr passed to redpanda module                  ║
 # ║  Fix F-TF01-B: github_org/repo passed to cluster module          ║
@@ -12,6 +14,14 @@ terraform {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
+    }
+    helm = {
+      source  = "hashicorp/helm"
+      version = "~> 2.12"
+    }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
     }
   }
 }
@@ -55,7 +65,7 @@ module "databases" {
   vpc_id        = module.vpc.vpc_id
   vpc_cidr      = var.vpc_cidr
   subnet_ids    = module.vpc.private_subnet_ids
-  multi_az      = false
+  multi_az      = var.multi_az
   eks_node_cidr = var.eks_node_cidr
 }
 

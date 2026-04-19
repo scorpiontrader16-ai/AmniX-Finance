@@ -39,3 +39,8 @@ postgres_replica_retention_days = 7
 # ── GitHub Actions ────────────────────────────────────────────────────────
 github_org  = "scorpiontrader16-ai"
 github_repo = "AmniX-Finance"
+
+# ── RDS ───────────────────────────────────────────────────────────────────
+# Fix F-TF01-C: previously hardcoded in main.tf — now explicit in tfvars
+multi_az          = true
+postgres_instance = "db.r8g.large"

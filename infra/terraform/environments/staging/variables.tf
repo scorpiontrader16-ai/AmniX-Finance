@@ -74,3 +74,11 @@ variable "github_repo" {
   description = "GitHub repository name for OIDC trust policy in cluster module."
   type        = string
 }
+
+# ── RDS ───────────────────────────────────────────────────────────────────
+# Fix F-TF01-C: extracted hardcoded multi_az = false from main.tf
+variable "multi_az" {
+  description = "Enable Multi-AZ for RDS. Default: false for staging (cost saving). Production must set true."
+  type        = bool
+  default     = false
+}

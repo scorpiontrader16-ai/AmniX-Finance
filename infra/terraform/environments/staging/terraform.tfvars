@@ -20,3 +20,7 @@ redpanda_instance_type = "im4gn.xlarge"
 
 github_org  = "scorpiontrader16-ai"
 github_repo = "AmniX-Finance"
+
+# ── RDS ───────────────────────────────────────────────────────────────────
+# Fix F-TF01-C: multi_az was hardcoded false in main.tf — now explicit
+multi_az = false

@@ -24,3 +24,8 @@ results_sync_bucket = "platform-results-sync-us-east-1"
 
 github_org  = "scorpiontrader16-ai"
 github_repo = "AmniX-Finance"
+
+# ── RDS ───────────────────────────────────────────────────────────────────
+# Fix F-TF01-C: previously hardcoded in main.tf — now explicit in tfvars
+multi_az          = true
+postgres_instance = "db.r8g.large"

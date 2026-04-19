@@ -1,6 +1,7 @@
 # ╔══════════════════════════════════════════════════════════════════╗
 # ║  Full path: infra/terraform/environments/eu-west-1/main.tf       ║
 # ║  Fix F-TF01: all hardcoded values replaced with var.*            ║
+# ║  Fix F-TF01-C: multi_az + postgres_instance → var.*              ║
 # ║  Fix ARN-BUG: replication destination uses var.results_sync_     ║
 # ║    bucket_us — removes hardcoded ARN in 2 places                 ║
 # ║  Fix X-01: replication resource lives in eu-west-1 (destination) ║
@@ -70,13 +71,12 @@ module "databases" {
   vpc_id            = module.vpc.vpc_id
   vpc_cidr          = var.vpc_cidr
   subnet_ids        = module.vpc.private_subnet_ids
-  multi_az          = true
-  postgres_instance = "db.r8g.large"
+  multi_az          = var.multi_az
+  postgres_instance = var.postgres_instance
   eks_node_cidr     = var.eks_node_cidr
 }
 
 # ── Redpanda ──────────────────────────────────────────────────────────────
-# SG-BUG FIX: vpc_cidr passed so Redpanda SG restricts to this VPC only
 module "redpanda" {
   source             = "../../modules/redpanda"
   cluster_name       = var.cluster_name
@@ -89,7 +89,6 @@ module "redpanda" {
 }
 
 # ── Vault ─────────────────────────────────────────────────────────────────
-# VAULT-REGION-BUG FIX: aws_region passed so Vault S3 storage uses eu-west-1
 module "vault" {
   source            = "../../modules/vault"
   cluster_name      = var.cluster_name
@@ -126,8 +125,6 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "results_sync" {
 }
 
 # ARN-BUG FIX: destination bucket ARN built from var.results_sync_bucket_us.
-# Previously hardcoded as "arn:aws:s3:::platform-results-sync-us-east-1" in 2 places.
-# Now driven by variable — consistent with production tfvars results_sync_bucket value.
 resource "aws_s3_bucket_replication_configuration" "results_sync" {
   bucket = aws_s3_bucket.results_sync.id
   role   = aws_iam_role.replication.arn

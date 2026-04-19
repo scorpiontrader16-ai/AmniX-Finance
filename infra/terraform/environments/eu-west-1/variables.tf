@@ -118,3 +118,22 @@ variable "github_repo" {
   description = "GitHub repository name for OIDC trust policy."
   type        = string
 }
+
+# ── RDS ───────────────────────────────────────────────────────────────────
+# Fix F-TF01-C: extracted hardcoded multi_az = true from main.tf
+variable "multi_az" {
+  description = "Enable Multi-AZ for RDS. Default: true (production-safe). Must be explicit per environment."
+  type        = bool
+  default     = true
+}
+
+# Fix F-TF01-C: extracted hardcoded postgres_instance = db.r8g.large from main.tf
+variable "postgres_instance" {
+  description = "RDS instance class for eu-west-1. Must be set explicitly — no default to force conscious choice."
+  type        = string
+
+  validation {
+    condition     = can(regex("^db\\.(t[0-9]|r[0-9]|m[0-9])", var.postgres_instance))
+    error_message = "postgres_instance must be a valid RDS instance class (e.g. db.r8g.large, db.t4g.medium)."
+  }
+}

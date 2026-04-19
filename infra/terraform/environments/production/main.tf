@@ -1,6 +1,8 @@
 # ╔══════════════════════════════════════════════════════════════════╗
 # ║  Full path: infra/terraform/environments/production/main.tf      ║
 # ║  Fix F-TF01: all hardcoded values replaced with var.*            ║
+# ║  Fix F-TF01-C: multi_az + postgres_instance → var.*              ║
+# ║  Fix DEAD-LOCAL: removed unused locals block (enable_mena)       ║
 # ║  Fix VAULT-REGION-BUG: aws_region passed to vault module         ║
 # ║  Fix SG-BUG: vpc_cidr passed to redpanda module                  ║
 # ║  Fix F-TF01-B: github_org/repo passed to cluster module          ║
@@ -36,10 +38,6 @@ provider "aws" {
   }
 }
 
-locals {
-  enable_mena = var.enable_mena_region
-}
-
 # ── VPC ──────────────────────────────────────────────────────────────────
 module "vpc" {
   source          = "../../modules/networking"
@@ -71,8 +69,8 @@ module "databases" {
   vpc_id            = module.vpc.vpc_id
   vpc_cidr          = var.vpc_cidr
   subnet_ids        = module.vpc.private_subnet_ids
-  multi_az          = true
-  postgres_instance = "db.r8g.large"
+  multi_az          = var.multi_az
+  postgres_instance = var.postgres_instance
   eks_node_cidr     = var.eks_node_cidr
 }
 
