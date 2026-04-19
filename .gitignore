@@ -92,3 +92,5 @@ audit-results.txt
 .pre-commit-cache/
 *.save
 *.bak2
+.terraform/
+.terraform.lock.hcl
