@@ -1,6 +1,7 @@
 module github.com/scorpiontrader16-ai/AmniX-Finance/services/hydration
 
 go 1.24.0
+toolchain go1.24.13
 
 require (
 	google.golang.org/grpc v1.79.3
@@ -23,7 +24,6 @@ require (
 
 replace github.com/scorpiontrader16-ai/AmniX-Finance => ../..
 
-toolchain go1.24.13
 
 require github.com/scorpiontrader16-ai/AmniX-Finance/internal/platform v0.0.0
 
