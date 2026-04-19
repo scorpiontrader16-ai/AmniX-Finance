@@ -88,3 +88,27 @@ variable "mirrormaker_volume_size" {
     error_message = "mirrormaker_volume_size must be at least 20 GB."
   }
 }
+
+# ── Tiered Storage Lifecycle ──────────────────────────────────────────────
+# F-TF01: extracted hardcoded lifecycle transition days
+variable "tiered_storage_standard_ia_days" {
+  type        = number
+  default     = 30
+  description = "Days before transitioning Redpanda tiered storage objects to STANDARD_IA."
+
+  validation {
+    condition     = var.tiered_storage_standard_ia_days >= 30
+    error_message = "tiered_storage_standard_ia_days must be at least 30 (AWS S3 minimum for STANDARD_IA)."
+  }
+}
+
+variable "tiered_storage_glacier_days" {
+  type        = number
+  default     = 90
+  description = "Days before transitioning Redpanda tiered storage objects to GLACIER_IR. Must be greater than tiered_storage_standard_ia_days."
+
+  validation {
+    condition     = var.tiered_storage_glacier_days > var.tiered_storage_standard_ia_days
+    error_message = "tiered_storage_glacier_days must be greater than tiered_storage_standard_ia_days."
+  }
+}

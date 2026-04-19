@@ -24,11 +24,11 @@ resource "aws_s3_bucket_lifecycle_configuration" "tiered" {
     status = "Enabled"
     filter {}
     transition {
-      days          = 30
+      days          = var.tiered_storage_standard_ia_days
       storage_class = "STANDARD_IA"
     }
     transition {
-      days          = 90
+      days          = var.tiered_storage_glacier_days
       storage_class = "GLACIER_IR"
     }
   }
