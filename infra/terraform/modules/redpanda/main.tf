@@ -162,7 +162,6 @@ resource "aws_instance" "redpanda" {
 
   user_data = base64encode(templatefile("${path.module}/userdata.sh", {
     broker_id             = count.index
-    cluster_name          = var.cluster_name
     tiered_storage_bucket = aws_s3_bucket.tiered.bucket
     aws_region            = data.aws_region.current.name
   }))
