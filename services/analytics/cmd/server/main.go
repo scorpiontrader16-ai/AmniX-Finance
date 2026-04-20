@@ -88,16 +88,16 @@ func main() {
     // Health checks
     mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
         w.WriteHeader(http.StatusOK)
-        w.Write([]byte("ok"))
+        _ = w.Write([]byte("ok"))
     })
     mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
         if err := pg.Ping(context.Background()); err != nil {
             w.WriteHeader(http.StatusServiceUnavailable)
-            w.Write([]byte("postgres not ready"))
+            _ = w.Write([]byte("postgres not ready"))
             return
         }
         w.WriteHeader(http.StatusOK)
-        w.Write([]byte("ready"))
+        _ = w.Write([]byte("ready"))
     })
 
     // Track event endpoint
@@ -143,7 +143,7 @@ func main() {
         httpRequestsTotal.WithLabelValues(r.Method, r.URL.Path, "202").Inc()
 
         w.WriteHeader(http.StatusAccepted)
-        json.NewEncoder(w).Encode(map[string]string{"status": "tracked"})
+        _ = json.NewEncoder(w).Encode(map[string]string{"status": "tracked"})
     })
 
     // Metrics endpoint

@@ -115,7 +115,7 @@ func (h *AgentHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+	_ = json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 		"agent_id":   agent.ID,
 		"name":       agent.Name,
 		"agent_type": agent.AgentType,
@@ -166,7 +166,7 @@ func (h *AgentHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"agents": result, "count": len(result)}) //nolint:errcheck
+	_ = json.NewEncoder(w).Encode(map[string]any{"agents": result, "count": len(result)}) //nolint:errcheck
 }
 
 // SuspendAgent handles DELETE /v1/auth/agents/{agent_id}
@@ -203,5 +203,5 @@ func (h *AgentHandler) SuspendAgent(w http.ResponseWriter, r *http.Request) {
 func agentError(w http.ResponseWriter, msg string, status int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg}) //nolint:errcheck
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg}) //nolint:errcheck
 }

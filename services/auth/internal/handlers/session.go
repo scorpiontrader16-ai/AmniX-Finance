@@ -38,7 +38,7 @@ func (h *SessionHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(sessions)
+	_ = json.NewEncoder(w).Encode(sessions)
 }
 
 func (h *SessionHandler) Revoke(w http.ResponseWriter, r *http.Request) {

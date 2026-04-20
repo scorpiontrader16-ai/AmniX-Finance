@@ -68,7 +68,7 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"api_key": key})
+	_ = json.NewEncoder(w).Encode(map[string]string{"api_key": key})
 }
 
 func (h *APIKeyHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -89,7 +89,7 @@ func (h *APIKeyHandler) List(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
 	}
-	json.NewEncoder(w).Encode(keys)
+	_ = json.NewEncoder(w).Encode(keys)
 }
 
 func (h *APIKeyHandler) Revoke(w http.ResponseWriter, r *http.Request) {
@@ -140,7 +140,7 @@ func (h *APIKeyHandler) VerifyInternal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"user_id":     userID,
 		"tenant_id":   tenantID,
 		"permissions": permissions,

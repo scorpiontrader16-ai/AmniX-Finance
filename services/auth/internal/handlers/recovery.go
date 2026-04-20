@@ -44,7 +44,7 @@ func (h *RecoveryHandler) RequestReset(w http.ResponseWriter, r *http.Request) {
     ).Scan(&userID, &tenantID)
     if err != nil {
         w.WriteHeader(http.StatusAccepted)
-        json.NewEncoder(w).Encode(map[string]string{"status": "if email exists, reset link sent"})
+        _ = json.NewEncoder(w).Encode(map[string]string{"status": "if email exists, reset link sent"})
         return
     }
 
@@ -75,7 +75,7 @@ func (h *RecoveryHandler) RequestReset(w http.ResponseWriter, r *http.Request) {
     }
 
     w.WriteHeader(http.StatusAccepted)
-    json.NewEncoder(w).Encode(map[string]string{"status": "if email exists, reset link sent"})
+    _ = json.NewEncoder(w).Encode(map[string]string{"status": "if email exists, reset link sent"})
 }
 
 func (h *RecoveryHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
@@ -119,5 +119,5 @@ func (h *RecoveryHandler) ResetPassword(w http.ResponseWriter, r *http.Request) 
     h.db.RevokeAllSessions(r.Context(), userID, tenantID, "")
 
     w.WriteHeader(http.StatusOK)
-    json.NewEncoder(w).Encode(map[string]string{"status": "password reset successful"})
+    _ = json.NewEncoder(w).Encode(map[string]string{"status": "password reset successful"})
 }

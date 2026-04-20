@@ -97,8 +97,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!(port = config.grpc_port, "gRPC server listening");
 
     tokio::spawn(async move {
+        // F-PROTO06: bound inbound and outbound message sizes to 4 MiB.
+        // SignalRequest.prices and ProcessEventRequest payloads are byte
+        // arrays with no proto-level size guard — this is the last line of
+        // defence before tonic allocates unbounded heap.
+        let engine_service = engine
+            .into_server()
+            .max_decoding_message_size(4 * 1024 * 1024)   // 4 MiB inbound
+            .max_encoding_message_size(4 * 1024 * 1024);  // 4 MiB outbound
+
         tonic::transport::Server::builder()
-            .add_service(engine.into_server())
+            // F-PROTO03: cap HTTP/2 MAX_CONCURRENT_STREAMS per connection.
+            // ProcessStream is bidirectional streaming — without this a single
+            // misbehaving client can open unbounded streams and starve others.
+            .max_concurrent_streams(100)
+            .add_service(engine_service)
             .add_service(reflection)
             .serve_with_incoming(TcpListenerStream::new(grpc_listener))
             .await

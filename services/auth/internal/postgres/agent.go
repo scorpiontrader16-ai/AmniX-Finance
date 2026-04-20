@@ -121,7 +121,7 @@ func (c *Client) ListAgents(ctx context.Context, tenantID string) ([]Agent, erro
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var agents []Agent
 	for rows.Next() {
@@ -150,7 +150,7 @@ func (c *Client) GetAgentPermissions(ctx context.Context, agentID string) ([]str
 	if err != nil {
 		return nil, fmt.Errorf("get agent permissions: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var perms []string
 	for rows.Next() {

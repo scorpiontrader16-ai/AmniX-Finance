@@ -77,7 +77,7 @@ func (c *Client) RegisterSchema(ctx context.Context, subject, schema string) (in
 	if err != nil {
 		return 0, fmt.Errorf("do request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
@@ -103,7 +103,7 @@ func (c *Client) GetLatestSchema(ctx context.Context, subject string) (string, e
 	if err != nil {
 		return "", fmt.Errorf("do request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return "", fmt.Errorf("subject %q not found", subject)
@@ -135,7 +135,7 @@ func (c *Client) SetCompatibility(ctx context.Context, subject string, level Com
 	if err != nil {
 		return fmt.Errorf("do request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
@@ -159,7 +159,7 @@ func (c *Client) CheckCompatibility(ctx context.Context, subject, schema string)
 	if err != nil {
 		return false, fmt.Errorf("do request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
@@ -185,7 +185,7 @@ func (c *Client) ListSubjects(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("do request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)

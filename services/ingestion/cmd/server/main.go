@@ -172,7 +172,7 @@ func main() {
 
 	var bufWriter *chwriter.BufferedWriter
 	if chConn != nil {
-		defer chConn.Close()
+		defer func() { _ = chConn.Close() }()
 		bufWriter = chwriter.NewBufferedWriter(chConn, chwriter.DefaultBufferConfig(), slogLogger)
 		defer bufWriter.Close()
 		log.Info("clickhouse hot store ready")
@@ -190,7 +190,7 @@ func main() {
 	}
 
 	if pgClient != nil {
-		defer pgClient.Close()
+		defer func() { _ = pgClient.Close() }()
 		if migrateErr := pgClient.Migrate(startupCtx); migrateErr != nil {
 			log.Warn("postgres migrations failed", zap.Error(migrateErr))
 		} else {
@@ -260,7 +260,7 @@ func main() {
 
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "ok")
+		_, _ = fmt.Fprint(w, "ok")
 	})
 
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
@@ -295,7 +295,7 @@ func main() {
 		}
 
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "ready")
+		_, _ = fmt.Fprint(w, "ready")
 	})
 
 	// ── Tenant RLS Middleware ─────────────────────────────────────────────
@@ -410,7 +410,7 @@ func main() {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, `{"event_id":%q,"tenant_id":%q,"accepted":true}`, eventID, tenantID)
+		_, _ = fmt.Fprintf(w, `{"event_id":%q,"tenant_id":%q,"accepted":true}`, eventID, tenantID)
 	})))
 
 	httpServer := &http.Server{
@@ -535,7 +535,7 @@ func dialTCP(ctx context.Context, addr string) error {
 	if err != nil {
 		return err
 	}
-	conn.Close()
+	_ = conn.Close()
 	return nil
 }
 

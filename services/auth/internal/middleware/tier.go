@@ -53,7 +53,7 @@ func RequireTier(jwtSvc *appjwt.Service, minTier string) func(http.Handler) http
 			if actual < required {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusForbidden)
-				w.Write([]byte(`{"error":"insufficient_tier","required":"` + minTier + `","actual":"` + claims.Tier + `"}`)) //nolint:errcheck
+				_ = w.Write([]byte(`{"error":"insufficient_tier","required":"` + minTier + `","actual":"` + claims.Tier + `"}`)) //nolint:errcheck
 				return
 			}
 

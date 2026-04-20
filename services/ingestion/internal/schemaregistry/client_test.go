@@ -37,7 +37,7 @@ func TestRegisterSchema_Success(t *testing.T) {
 			t.Errorf("expected POST, got %s", r.Method)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(schemaResponse{ID: 42})
+		_ = json.NewEncoder(w).Encode(schemaResponse{ID: 42})
 	})
 
 	id, err := client.RegisterSchema(context.Background(), "test-subject", `syntax="proto3";`)
@@ -63,7 +63,7 @@ func TestRegisterSchema_ServerError(t *testing.T) {
 func TestRegisterSchema_InvalidJSON(t *testing.T) {
 	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("not-json"))
+		_, _ = w.Write([]byte("not-json"))
 	})
 
 	_, err := client.RegisterSchema(context.Background(), "subject", "schema")
@@ -76,7 +76,7 @@ func TestRegisterSchema_InvalidJSON(t *testing.T) {
 
 func TestGetLatestSchema_Success(t *testing.T) {
 	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(latestSchemaResponse{
+		_ = json.NewEncoder(w).Encode(latestSchemaResponse{
 			ID:      1,
 			Version: 1,
 			Schema:  `syntax="proto3";`,
@@ -107,7 +107,7 @@ func TestGetLatestSchema_NotFound(t *testing.T) {
 
 func TestCheckCompatibility_Compatible(t *testing.T) {
 	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(compatibilityResponse{IsCompatible: true})
+		_ = json.NewEncoder(w).Encode(compatibilityResponse{IsCompatible: true})
 	})
 
 	ok, err := client.CheckCompatibility(context.Background(), "subject", "schema")
@@ -121,7 +121,7 @@ func TestCheckCompatibility_Compatible(t *testing.T) {
 
 func TestCheckCompatibility_Incompatible(t *testing.T) {
 	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(compatibilityResponse{IsCompatible: false})
+		_ = json.NewEncoder(w).Encode(compatibilityResponse{IsCompatible: false})
 	})
 
 	ok, err := client.CheckCompatibility(context.Background(), "subject", "breaking-schema")
@@ -139,7 +139,7 @@ func TestListSubjects_Success(t *testing.T) {
 	expected := []string{"events-v1", "processing-v1"}
 
 	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(expected)
+		_ = json.NewEncoder(w).Encode(expected)
 	})
 
 	subjects, err := client.ListSubjects(context.Background())
@@ -153,7 +153,7 @@ func TestListSubjects_Success(t *testing.T) {
 
 func TestListSubjects_Empty(t *testing.T) {
 	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode([]string{})
+		_ = json.NewEncoder(w).Encode([]string{})
 	})
 
 	subjects, err := client.ListSubjects(context.Background())
@@ -172,7 +172,7 @@ func TestSetCompatibility_Success(t *testing.T) {
 		if r.Method != http.MethodPut {
 			t.Errorf("expected PUT, got %s", r.Method)
 		}
-		json.NewEncoder(w).Encode(map[string]string{"compatibility": "BACKWARD"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"compatibility": "BACKWARD"})
 	})
 
 	err := client.SetCompatibility(context.Background(), "subject", CompatBackward)
@@ -196,7 +196,7 @@ func TestSetCompatibility_ServerError(t *testing.T) {
 
 func TestRegisterSchema_ContextCancelled(t *testing.T) {
 	_, client := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(schemaResponse{ID: 1})
+		_ = json.NewEncoder(w).Encode(schemaResponse{ID: 1})
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())

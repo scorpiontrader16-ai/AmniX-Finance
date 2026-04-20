@@ -83,7 +83,7 @@ func main() {
         slog.Error("failed to connect postgres", "error", err)
         os.Exit(1)
     }
-    defer pool.Close()
+    defer func() { _ = pool.Close() }()
 
     // Redis
     redisAddr := os.Getenv("REDIS_ADDR")
@@ -100,7 +100,7 @@ func main() {
 
     // Asynq client
     asynqClient := asynq.NewClient(asynq.RedisClientOpt{Addr: redisAddr})
-    defer asynqClient.Close()
+    defer func() { _ = asynqClient.Close() }()
 
     // Asynq server
     asynqSrv := asynq.NewServer(
@@ -194,22 +194,22 @@ func setupHTTPHandlers(mux *http.ServeMux, pool *pgxpool.Pool, redisClient *redi
     // Health
     mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
         w.WriteHeader(http.StatusOK)
-        w.Write([]byte("ok"))
+        _ = w.Write([]byte("ok"))
     })
     mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
         if err := pool.Ping(context.Background()); err != nil {
             w.WriteHeader(http.StatusServiceUnavailable)
-            w.Write([]byte("postgres not ready"))
+            _ = w.Write([]byte("postgres not ready"))
             return
         }
         // Check Redis (used by asynq)
         if err := redisClient.Ping(context.Background()).Err(); err != nil {
             w.WriteHeader(http.StatusServiceUnavailable)
-            w.Write([]byte("redis not ready"))
+            _ = w.Write([]byte("redis not ready"))
             return
         }
         w.WriteHeader(http.StatusOK)
-        w.Write([]byte("ready"))
+        _ = w.Write([]byte("ready"))
     })
 
     // Submit job
@@ -265,7 +265,7 @@ func setupHTTPHandlers(mux *http.ServeMux, pool *pgxpool.Pool, redisClient *redi
         httpRequestsTotal.WithLabelValues(r.Method, r.URL.Path, "202").Inc()
 
         w.WriteHeader(http.StatusAccepted)
-        json.NewEncoder(w).Encode(map[string]interface{}{"job_id": jobID, "status": "accepted"})
+        _ = json.NewEncoder(w).Encode(map[string]interface{}{"job_id": jobID, "status": "accepted"})
     })
 
     // List jobs
@@ -284,7 +284,7 @@ func setupHTTPHandlers(mux *http.ServeMux, pool *pgxpool.Pool, redisClient *redi
             http.Error(w, "db error", http.StatusInternalServerError)
             return
         }
-        defer rows.Close()
+        defer func() { _ = rows.Close() }()
         var jobs []map[string]interface{}
         for rows.Next() {
             var id int64
@@ -297,7 +297,7 @@ func setupHTTPHandlers(mux *http.ServeMux, pool *pgxpool.Pool, redisClient *redi
                 "id": id, "type": jobType, "name": jobName, "status": status, "created_at": createdAt,
             })
         }
-        json.NewEncoder(w).Encode(jobs)
+        _ = json.NewEncoder(w).Encode(jobs)
     })
 
     // Create cron job
@@ -329,7 +329,7 @@ func setupHTTPHandlers(mux *http.ServeMux, pool *pgxpool.Pool, redisClient *redi
             return
         }
         w.WriteHeader(http.StatusCreated)
-        json.NewEncoder(w).Encode(map[string]string{"status": "created"})
+        _ = json.NewEncoder(w).Encode(map[string]string{"status": "created"})
     })
 
     // List cron jobs
@@ -348,7 +348,7 @@ func setupHTTPHandlers(mux *http.ServeMux, pool *pgxpool.Pool, redisClient *redi
             http.Error(w, "db error", http.StatusInternalServerError)
             return
         }
-        defer rows.Close()
+        defer func() { _ = rows.Close() }()
         var jobs []map[string]interface{}
         for rows.Next() {
             var id int64
@@ -363,7 +363,7 @@ func setupHTTPHandlers(mux *http.ServeMux, pool *pgxpool.Pool, redisClient *redi
                 "enabled": enabled, "next_run_at": nextRunAt,
             })
         }
-        json.NewEncoder(w).Encode(jobs)
+        _ = json.NewEncoder(w).Encode(jobs)
     })
 
     // Metrics
@@ -410,7 +410,7 @@ func runCronScheduler(pool *pgxpool.Pool, client *asynq.Client) {
                 slog.Error("failed to update cron next_run", "error", err)
             }
         }
-        rows.Close()
+        _ = rows.Close()
     }
 }
 

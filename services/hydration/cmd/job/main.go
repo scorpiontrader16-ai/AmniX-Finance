@@ -67,7 +67,7 @@ func main() {
 		logger.Error("failed to create grpc connection", "error", err)
 		os.Exit(1)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	ctx := context.Background()
 

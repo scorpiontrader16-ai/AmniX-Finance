@@ -75,7 +75,7 @@ func main() {
         slog.Error("failed to connect postgres", "error", err)
         os.Exit(1)
     }
-    defer pgClient.Close()
+    defer func() { _ = pgClient.Close() }()
 
     esURL := os.Getenv("ELASTICSEARCH_URL")
     if esURL == "" {
@@ -94,23 +94,23 @@ func main() {
 
     mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
         w.WriteHeader(http.StatusOK)
-        w.Write([]byte("ok"))
+        _ = w.Write([]byte("ok"))
     })
 
     mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
         if err := pgClient.Pool().Ping(context.Background()); err != nil {
             w.WriteHeader(http.StatusServiceUnavailable)
-            w.Write([]byte("postgres not ready"))
+            _ = w.Write([]byte("postgres not ready"))
             return
         }
         _, err := esClient.Info()
         if err != nil {
             w.WriteHeader(http.StatusServiceUnavailable)
-            w.Write([]byte("elasticsearch not ready"))
+            _ = w.Write([]byte("elasticsearch not ready"))
             return
         }
         w.WriteHeader(http.StatusOK)
-        w.Write([]byte("ready"))
+        _ = w.Write([]byte("ready"))
     })
 
     mux.HandleFunc("POST /api/v1/search/{index}", func(w http.ResponseWriter, r *http.Request) {
@@ -137,7 +137,7 @@ func main() {
 
         httpRequestsTotal.WithLabelValues(r.Method, r.URL.Path, "200").Inc()
         w.Header().Set("Content-Type", "application/json")
-        json.NewEncoder(w).Encode(result)
+        _ = json.NewEncoder(w).Encode(result)
     })
 
     mux.Handle("GET /metrics", promhttp.Handler())

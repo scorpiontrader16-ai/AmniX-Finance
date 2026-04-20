@@ -138,7 +138,7 @@ func main() {
 	if err != nil {
 		log.Fatal("postgres unavailable", zap.Error(err))
 	}
-	defer pgClient.Close()
+	defer func() { _ = pgClient.Close() }()
 
 	if err := pgClient.Migrate(startupCtx); err != nil {
 		log.Fatal("migrations failed", zap.Error(err))
@@ -225,7 +225,7 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "public, max-age=3600")
-		w.Write(jwks) //nolint:errcheck
+		_ = w.Write(jwks) //nolint:errcheck
 	})
 
 	// ── Auth ──────────────────────────────────────────────────────────────
@@ -564,7 +564,7 @@ func exchangeCode(ctx context.Context, cfg Config, code, redirectURI string) (*k
 	if err != nil {
 		return nil, fmt.Errorf("keycloak request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("keycloak %d: %s", resp.StatusCode, string(body))
@@ -584,7 +584,7 @@ func getKeycloakUserInfo(ctx context.Context, cfg Config, accessToken string) (*
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var u keycloakUserInfo
 	return &u, json.NewDecoder(resp.Body).Decode(&u)
 }
@@ -602,12 +602,12 @@ func withMetrics(next http.Handler) http.Handler {
 func jsonError(w http.ResponseWriter, msg string, status int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg}) //nolint:errcheck
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg}) //nolint:errcheck
 }
 
 func jsonOK(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(v) //nolint:errcheck
+	_ = json.NewEncoder(w).Encode(v) //nolint:errcheck
 }
 
 func generateToken() string {

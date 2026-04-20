@@ -51,7 +51,7 @@ func (s *Store) GetOutbound(ctx context.Context, tenantID, fromEntity string) ([
 		return nil, fmt.Errorf("graph: GetOutbound (tenant=%s from=%s): %w",
 			tenantID, fromEntity, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	return scanRows(rows)
 }
@@ -79,7 +79,7 @@ func (s *Store) GetInbound(ctx context.Context, tenantID, toEntity string) ([]Re
 		return nil, fmt.Errorf("graph: GetInbound (tenant=%s to=%s): %w",
 			tenantID, toEntity, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	return scanRows(rows)
 }
@@ -107,7 +107,7 @@ func (s *Store) GetNeighbors(ctx context.Context, tenantID, entityID string) ([]
 		return nil, fmt.Errorf("graph: GetNeighbors (tenant=%s entity=%s): %w",
 			tenantID, entityID, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	return scanRows(rows)
 }
@@ -135,7 +135,7 @@ func (s *Store) GetByType(ctx context.Context, tenantID, relType string) ([]Rela
 		return nil, fmt.Errorf("graph: GetByType (tenant=%s type=%s): %w",
 			tenantID, relType, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	return scanRows(rows)
 }
@@ -168,7 +168,7 @@ func (s *Store) GetActive(ctx context.Context, tenantID string, at time.Time) ([
 		return nil, fmt.Errorf("graph: GetActive (tenant=%s at=%s): %w",
 			tenantID, at.Format(time.RFC3339), err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	return scanRows(rows)
 }

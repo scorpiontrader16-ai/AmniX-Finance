@@ -78,7 +78,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Client, error) 
 	db.SetConnMaxLifetime(cfg.ConnLifetime)
 
 	if err := db.PingContext(ctx); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
 	logger.Info("postgres connected", "host", cfg.Host, "database", cfg.Database)
@@ -322,7 +322,7 @@ func (c *Client) ListInvoices(ctx context.Context, tenantID string, limit int) (
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var invoices []*Invoice
 	for rows.Next() {
@@ -366,7 +366,7 @@ func (c *Client) GetUsageSummary(ctx context.Context, tenantID string, from, to 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	result := make(map[string]int64)
 	for rows.Next() {

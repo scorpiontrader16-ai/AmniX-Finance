@@ -118,7 +118,7 @@ func deliverOnce(ctx context.Context, url, secretHash string, payload []byte, at
 			Error:      fmt.Sprintf("http request: %v", err),
 		}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var bodyBuf bytes.Buffer
 	if _, err := bodyBuf.ReadFrom(resp.Body); err != nil {

@@ -66,7 +66,7 @@ func (c *Client) Search(ctx context.Context, req SearchRequest) (*SearchResult, 
     if err != nil {
         return nil, fmt.Errorf("search error: %w", err)
     }
-    defer res.Body.Close()
+    defer func() { _ = res.Body.Close() }()
 
     if res.StatusCode != http.StatusOK {
         return nil, fmt.Errorf("elasticsearch returned %s", res.Status())

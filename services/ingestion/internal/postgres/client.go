@@ -78,7 +78,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Client, error) 
 	db.SetConnMaxLifetime(cfg.ConnLifetime)
 
 	if err := db.PingContext(ctx); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
 
@@ -299,7 +299,7 @@ func (c *Client) GetUnarchived(ctx context.Context, olderThan time.Time, limit i
 	if err != nil {
 		return nil, fmt.Errorf("query unarchived events: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var events []WarmEvent
 	for rows.Next() {

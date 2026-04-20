@@ -123,7 +123,7 @@ func (s *Store) AddRelationshipBatch(ctx context.Context, rels []Relationship) (
 	if err != nil {
 		return fmt.Errorf("graph: prepare batch statement: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	for i, rel := range rels {
 		metadataJSON, merr := marshalMetadata(rel.Metadata)

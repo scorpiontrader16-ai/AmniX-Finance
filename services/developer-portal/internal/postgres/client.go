@@ -84,7 +84,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Client, error) 
 	db.SetMaxIdleConns(cfg.MaxIdleConns)
 	db.SetConnMaxLifetime(cfg.ConnLifetime)
 	if err := db.PingContext(ctx); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
 	logger.Info("postgres connected", "host", cfg.Host, "database", cfg.Database)
@@ -219,7 +219,7 @@ func (c *Client) ListAPIKeys(ctx context.Context, userID, tenantID string) ([]*A
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var keys []*APIKey
 	for rows.Next() {
@@ -321,7 +321,7 @@ func (c *Client) ListWebhooks(ctx context.Context, tenantID string) ([]*WebhookE
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var webhooks []*WebhookEndpoint
 	for rows.Next() {
@@ -363,7 +363,7 @@ func (c *Client) GetActiveWebhooksForEvent(ctx context.Context, tenantID, eventT
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var webhooks []*WebhookEndpoint
 	for rows.Next() {
@@ -467,7 +467,7 @@ func (c *Client) GetTopEndpoints(ctx context.Context, tenantID string, from, to 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []map[string]any
 	for rows.Next() {
@@ -495,7 +495,7 @@ func (c *Client) ListEventTypes(ctx context.Context) ([]map[string]string, error
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var types []map[string]string
 	for rows.Next() {

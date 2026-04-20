@@ -72,7 +72,7 @@ func New(cfg Config, h *hub.Hub, log *zap.Logger) (*Consumer, error) {
 // Run يشغّل الـ consumer loop حتى يتوقف الـ context
 func (c *Consumer) Run(ctx context.Context) {
 	c.log.Info("redpanda consumer started")
-	defer c.client.Close()
+	defer func() { _ = c.client.Close() }()
 
 	for {
 		select {

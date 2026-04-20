@@ -127,7 +127,7 @@ func (c *jwksCache) refresh(kid string) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fetch jwks: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var set struct {
 		Keys []json.RawMessage `json:"keys"`
 	}

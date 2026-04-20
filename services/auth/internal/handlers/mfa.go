@@ -54,7 +54,7 @@ func (h *MFAHandler) GenerateTOTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	_ = json.NewEncoder(w).Encode(map[string]string{
 		"secret": key.Secret(),
 		"url":    key.URL(),
 	})
@@ -98,7 +98,7 @@ func (h *MFAHandler) VerifyTOTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "enabled"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "enabled"})
 }
 
 func (h *MFAHandler) DisableMFA(w http.ResponseWriter, r *http.Request) {
@@ -162,7 +162,7 @@ func (h *MFAHandler) SendSMS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]string{"status": "sent"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "sent"})
 }
 
 func (h *MFAHandler) VerifySMS(w http.ResponseWriter, r *http.Request) {
@@ -193,5 +193,5 @@ func (h *MFAHandler) VerifySMS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "verified"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "verified"})
 }

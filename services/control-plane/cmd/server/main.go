@@ -54,7 +54,7 @@ func main() {
         slog.Error("failed to connect postgres", "error", err)
         os.Exit(1)
     }
-    defer pool.Close()
+    defer func() { _ = pool.Close() }()
 
     s := &server{db: pool}
 
@@ -64,16 +64,16 @@ func main() {
     // Health checks
     router.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
         w.WriteHeader(http.StatusOK)
-        w.Write([]byte("ok"))
+        _ = w.Write([]byte("ok"))
     })
     router.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
         if err := pool.Ping(context.Background()); err != nil {
             w.WriteHeader(http.StatusServiceUnavailable)
-            w.Write([]byte("postgres not ready"))
+            _ = w.Write([]byte("postgres not ready"))
             return
         }
         w.WriteHeader(http.StatusOK)
-        w.Write([]byte("ready"))
+        _ = w.Write([]byte("ready"))
     })
 
     // Legal pages (served from mounted volume)
@@ -179,7 +179,7 @@ func (s *server) handleLegalHolds(w http.ResponseWriter, r *http.Request) {
             http.Error(w, "database error", http.StatusInternalServerError)
             return
         }
-        defer rows.Close()
+        defer func() { _ = rows.Close() }()
 
         var holds []map[string]interface{}
         for rows.Next() {
@@ -201,7 +201,7 @@ func (s *server) handleLegalHolds(w http.ResponseWriter, r *http.Request) {
             }
             holds = append(holds, hold)
         }
-        json.NewEncoder(w).Encode(holds)
+        _ = json.NewEncoder(w).Encode(holds)
 
     case http.MethodPost:
         var req struct {
@@ -228,7 +228,7 @@ func (s *server) handleLegalHolds(w http.ResponseWriter, r *http.Request) {
             return
         }
         w.WriteHeader(http.StatusCreated)
-        json.NewEncoder(w).Encode(map[string]string{"status": "created"})
+        _ = json.NewEncoder(w).Encode(map[string]string{"status": "created"})
     }
 }
 
@@ -273,7 +273,7 @@ func (s *server) handleGenerateMifidReport(w http.ResponseWriter, r *http.Reques
         return
     }
     w.WriteHeader(http.StatusAccepted)
-    json.NewEncoder(w).Encode(map[string]string{"status": "report generation started"})
+    _ = json.NewEncoder(w).Encode(map[string]string{"status": "report generation started"})
 }
 
 func (s *server) handleAcceptDisclaimer(w http.ResponseWriter, r *http.Request) {
@@ -313,7 +313,7 @@ func (s *server) handleAcceptDisclaimer(w http.ResponseWriter, r *http.Request) 
         return
     }
     w.WriteHeader(http.StatusCreated)
-    json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
+    _ = json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
 }
 
 // ========== TENANT MANAGEMENT HANDLERS (M9) ==========
@@ -369,7 +369,7 @@ func (s *server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
     )
 
     w.WriteHeader(http.StatusCreated)
-    json.NewEncoder(w).Encode(map[string]string{"id": tenantID})
+    _ = json.NewEncoder(w).Encode(map[string]string{"id": tenantID})
 }
 
 func (s *server) handleListTenants(w http.ResponseWriter, r *http.Request) {
@@ -381,7 +381,7 @@ func (s *server) handleListTenants(w http.ResponseWriter, r *http.Request) {
         http.Error(w, "database error", http.StatusInternalServerError)
         return
     }
-    defer rows.Close()
+    defer func() { _ = rows.Close() }()
 
     var tenants []map[string]interface{}
     for rows.Next() {
@@ -403,7 +403,7 @@ func (s *server) handleListTenants(w http.ResponseWriter, r *http.Request) {
             "updated_at":    updatedAt,
         })
     }
-    json.NewEncoder(w).Encode(tenants)
+    _ = json.NewEncoder(w).Encode(tenants)
 }
 
 func (s *server) handleSuspendTenant(w http.ResponseWriter, r *http.Request) {

@@ -1,0 +1,10 @@
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Full path: k8s/base/sync/namespace.yaml                            ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sync
+  labels:
+    app.kubernetes.io/part-of: youtuop-platform
+    app.kubernetes.io/component: cross-region-sync

@@ -575,12 +575,36 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      - Timeout=300
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Disabled — cross-region-sync pending k8s/base/sync/ implementation
-# ─────────────────────────────────────────────────────────────────────────────
-# apiVersion: argoproj.io/v1alpha1
-# kind: Application
-# metadata:
-#   name: cross-region-sync
-# ...
+# ── Wave 3: Cross-region sync ─────────────────────────────────────────────────
+# Runs after all core services are up (wave 2).
+# Manages the CronJob that replicates cold-data S3 bucket to DR region.
+# prune: false — prevents accidental deletion of sync CronJob during DR events.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cross-region-sync
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    app.kubernetes.io/component: disaster-recovery
+    app.kubernetes.io/part-of: youtuop-platform
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/scorpiontrader16-ai/AmniX-Finance.git
+    targetRevision: main
+    path: k8s/base/sync
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: sync
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - Timeout=300

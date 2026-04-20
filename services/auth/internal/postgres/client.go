@@ -69,7 +69,7 @@ func NewClient(ctx context.Context, cfg Config) (*Client, error) {
 		return nil, fmt.Errorf("failed to create connection pool: %w", err)
 	}
 	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
+		_ = pool.Close()
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 	return &Client{db: pool}, nil
@@ -239,7 +239,7 @@ func (c *Client) GetPermissions(ctx context.Context, userID, tenantID string) ([
 		// user_permissions table may not exist yet — fall back to role defaults
 		return c.roleBasedPermissions(ctx, userID, tenantID)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var perms []string
 	for rows.Next() {
@@ -378,7 +378,7 @@ func (c *Client) ListSessions(ctx context.Context, userID, tenantID string) ([]S
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var sessions []Session
 	for rows.Next() {
@@ -599,7 +599,7 @@ func (c *Client) ListAPIKeys(ctx context.Context, userID, tenantID string) ([]AP
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var keys []APIKey
 	for rows.Next() {

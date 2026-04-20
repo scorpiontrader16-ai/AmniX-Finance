@@ -1,0 +1,30 @@
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Full path: k8s/base/sync/configmap.yaml                            ║
+# ║  Sync script — replicates cold-data bucket to secondary region      ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cross-region-sync-script
+  namespace: sync
+  labels:
+    app.kubernetes.io/name: cross-region-sync
+    app.kubernetes.io/part-of: youtuop-platform
+data:
+  sync.sh: |
+    #!/bin/sh
+    set -euo pipefail
+
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] cross-region-sync starting"
+    echo "  source:      s3://${SOURCE_BUCKET} (${AWS_DEFAULT_REGION})"
+    echo "  destination: s3://${DEST_BUCKET} (${DEST_REGION})"
+
+    aws s3 sync \
+      "s3://${SOURCE_BUCKET}" \
+      "s3://${DEST_BUCKET}" \
+      --source-region "${AWS_DEFAULT_REGION}" \
+      --region "${DEST_REGION}" \
+      --only-show-errors \
+      --no-progress
+
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] cross-region-sync completed successfully"

@@ -1,0 +1,35 @@
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Full path: k8s/base/sync/rbac.yaml                                 ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cross-region-sync
+  namespace: sync
+  labels:
+    app.kubernetes.io/name: cross-region-sync
+    app.kubernetes.io/part-of: youtuop-platform
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cross-region-sync
+  namespace: sync
+  labels:
+    app.kubernetes.io/name: cross-region-sync
+    app.kubernetes.io/part-of: youtuop-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cross-region-sync
+subjects:
+  - kind: ServiceAccount
+    name: cross-region-sync
+    namespace: sync

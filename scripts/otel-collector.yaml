@@ -1,74 +1,97 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# OpenTelemetry Collector — Local Development
-# Pipeline: Traces→debug | Metrics→prometheus | Logs→debug
-# ─────────────────────────────────────────────────────────────────────────────
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Full path: scripts/otel-collector.yaml                             ║
+# ║  OTel Collector — AmniX-Finance dev stack                           ║
+# ║  Receives OTLP from all services → Prometheus (Grafana) + Redpanda  ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  pprof:
+    endpoint: 127.0.0.1:1888
 
 receivers:
   otlp:
     protocols:
       grpc:
         endpoint: 0.0.0.0:4317
+        max_recv_msg_size_mib: 4
       http:
         endpoint: 0.0.0.0:4318
 
-  prometheus:
-    config:
-      scrape_configs:
-        - job_name: processing
-          scrape_interval: 15s
-          static_configs:
-            - targets: ["processing:9093"]
-              labels:
-                service: processing
-        - job_name: ingestion
-          scrape_interval: 15s
-          static_configs:
-            - targets: ["ingestion:9091"]
-              labels:
-                service: ingestion
-
 processors:
-  batch:
-    timeout: 1s
-    send_batch_size: 1024
   memory_limiter:
     check_interval: 1s
-    limit_mib: 256
-    spike_limit_mib: 64
+    limit_mib: 400
+    spike_limit_mib: 100
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
   resource:
     attributes:
       - key: deployment.environment
-        value: local
-        action: upsert
-      - key: platform
-        value: youtuop
+        value: development
         action: upsert
 
 exporters:
-  debug:
-    verbosity: basic
+  # Metrics → Prometheus scrape endpoint (Grafana datasource)
   prometheus:
-    endpoint: 0.0.0.0:8889
-    namespace: otelcol
+    endpoint: "0.0.0.0:8888"
+    namespace: amnix
+    send_timestamps: true
+    metric_expiration: 5m
+    resource_to_telemetry_conversion:
+      enabled: true
 
-extensions:
-  health_check:
-    endpoint: 0.0.0.0:13133
-  pprof:
-    endpoint: 0.0.0.0:1777
+  # Traces → Redpanda topic for downstream consumption
+  kafka:
+    brokers:
+      - redpanda:9092
+    topic: platform.traces
+    encoding: otlp_proto
+    timeout: 10s
+    producer:
+      max_message_bytes: 4194304  # 4 MiB
+      compression: snappy
+      required_acks: 1
+      flush_max_messages: 256
+
+  # Logs → Redpanda topic
+  kafka/logs:
+    brokers:
+      - redpanda:9092
+    topic: platform.logs
+    encoding: otlp_proto
+    timeout: 10s
+    producer:
+      max_message_bytes: 4194304
+      compression: snappy
+      required_acks: 1
+
+  # Debug — dev visibility (sampled to avoid noise)
+  debug:
+    verbosity: normal
+    sampling_initial: 5
+    sampling_thereafter: 100
 
 service:
   extensions: [health_check, pprof]
   pipelines:
     traces:
-      receivers:  [otlp]
-      processors: [memory_limiter, resource, batch]
-      exporters:  [debug]
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resource]
+      exporters: [kafka, debug]
     metrics:
-      receivers:  [otlp, prometheus]
-      processors: [memory_limiter, resource, batch]
-      exporters:  [prometheus]
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resource]
+      exporters: [prometheus]
     logs:
-      receivers:  [otlp]
-      processors: [memory_limiter, resource, batch]
-      exporters:  [debug]
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resource]
+      exporters: [kafka/logs, debug]
+  telemetry:
+    logs:
+      level: warn
+    metrics:
+      address: 0.0.0.0:8889

@@ -45,7 +45,7 @@ func LoadVaultSecrets(path string) error {
 	if err != nil {
 		return fmt.Errorf("open vault secrets file %s: %w", path, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	lineNum := 0

@@ -40,7 +40,7 @@ func main() {
 	if err != nil {
 		logger.Fatal("failed to connect postgres", zap.Error(err))
 	}
-	defer pool.Close()
+	defer func() { _ = pool.Close() }()
 
 	// ── Kubernetes ────────────────────────────────────────────────────
 	k8sCfg, err := rest.InClusterConfig()
@@ -84,7 +84,7 @@ func reconcile(ctx context.Context, pool *pgxpool.Pool, p *onboarding.Provisione
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var provisioned int
 	for rows.Next() {

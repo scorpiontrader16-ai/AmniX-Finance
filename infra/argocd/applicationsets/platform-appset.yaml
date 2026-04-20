@@ -59,6 +59,10 @@ spec:
           # ── Data Pipeline ───────────────────────────────────────────────
           - service: data-quality
             wave: "2"
+          - service: ingestion
+            wave: "2"
+          - service: processing
+            wave: "2"
           # ── AI / ML ─────────────────────────────────────────────────────
           - service: ml-engine
             wave: "3"

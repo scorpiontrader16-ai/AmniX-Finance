@@ -83,7 +83,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Client, error) 
 	db.SetMaxIdleConns(cfg.MaxIdleConns)
 	db.SetConnMaxLifetime(cfg.ConnLifetime)
 	if err := db.PingContext(ctx); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
 	logger.Info("postgres connected", "host", cfg.Host, "database", cfg.Database)
@@ -269,7 +269,7 @@ func (c *Client) ListUnread(ctx context.Context, userID string, limit int) ([]*N
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var notifs []*Notification
 	for rows.Next() {

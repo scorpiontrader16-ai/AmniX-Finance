@@ -112,7 +112,7 @@ func TestClickHouse_BufferedWriter(t *testing.T) {
 	}
 
 	bw := NewBufferedWriter(w, cfg, slog.Default())
-	defer bw.Close()
+	defer func() { _ = bw.Close() }()
 
 	now := time.Now().UTC()
 	enqueued := 0
