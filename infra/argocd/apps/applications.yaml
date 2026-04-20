@@ -596,7 +596,10 @@ spec:
   source:
     repoURL: https://github.com/scorpiontrader16-ai/AmniX-Finance.git
     targetRevision: main
-    path: k8s/base/sync
+    # F-ARGO08: use production overlay (not base) so IRSA ARN patch is applied.
+    # Base uses placeholder "REPLACE_ME_WITH_IRSA_ROLE_ARN" — the overlay
+    # patches the correct ARN via JSON Patch on the ServiceAccount annotation.
+    path: k8s/overlays/production/sync
   destination:
     server: https://kubernetes.default.svc
     namespace: sync

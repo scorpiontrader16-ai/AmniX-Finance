@@ -1,0 +1,35 @@
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Full path: k8s/overlays/production/sync/kustomization.yaml         ║
+# ║  Production overlay for cross-region-sync — sets IRSA role ARN      ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+#
+# IRSA (IAM Roles for Service Accounts) setup:
+#   The ServiceAccount in base uses a placeholder ARN.
+#   This overlay patches the correct ARN for the production AWS account.
+#
+# Before deploying:
+#   1. Get the ARN from Terraform:
+#        terraform -chdir=infra/terraform/environments/production output -raw cross_region_sync_role_arn
+#   2. Replace REPLACE_ME_WITH_IRSA_ROLE_ARN below with the actual ARN.
+#   3. Commit the change. ArgoCD will apply it automatically.
+#
+# ARN format: arn:aws:iam::<ACCOUNT_ID>:role/<ROLE_NAME>
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../../base/sync
+
+# ── IRSA: inject production IAM role ARN ─────────────────────────────────────
+# Replaces the base placeholder with the actual role ARN.
+# JSON Patch: RFC 6902 — /metadata/annotations/<key> using ~ escaping for /
+patches:
+  - target:
+      kind: ServiceAccount
+      name: cross-region-sync
+      namespace: sync
+    patch: |-
+      - op: replace
+        path: /metadata/annotations/eks.amazonaws.com~1role-arn
+        value: "REPLACE_ME_WITH_IRSA_ROLE_ARN"
