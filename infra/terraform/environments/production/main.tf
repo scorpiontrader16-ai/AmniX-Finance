@@ -6,6 +6,8 @@
 # ║  Fix VAULT-REGION-BUG: aws_region passed to vault module         ║
 # ║  Fix SG-BUG: vpc_cidr passed to redpanda module                  ║
 # ║  Fix F-TF01-B: github_org/repo passed to cluster module          ║
+# ║  Fix HIGH-01: results_sync S3 public access block added          ║
+# ║  Fix MEDIUM-05: results_sync S3 lifecycle policy added           ║
 # ╚══════════════════════════════════════════════════════════════════╝
 
 terraform {
@@ -38,22 +40,6 @@ provider "aws" {
   }
 }
 
-# ── Helm Provider ─────────────────────────────────────────────────────────
-# C-03: helm provider configured with EKS credentials via exec plugin.
-provider "helm" {
-  kubernetes {
-    host                   = module.cluster.cluster_endpoint
-    cluster_ca_certificate = base64decode(module.cluster.cluster_ca_data)
-    exec {
-      api_version = "client.authentication.k8s.io/v1beta1"
-      command     = "aws"
-      args        = ["eks", "get-token", "--cluster-name", var.cluster_name, "--region", var.aws_region]
-    }
-  }
-}
-
-provider "tls" {}
-
 # ── VPC ──────────────────────────────────────────────────────────────────
 module "vpc" {
   source          = "../../modules/networking"
@@ -62,7 +48,9 @@ module "vpc" {
   azs             = var.availability_zones
   private_subnets = var.private_subnets
   public_subnets  = var.public_subnets
-  cluster_name    = var.cluster_name
+  cluster_name             = var.cluster_name
+  enable_flow_logs         = true
+  flow_logs_retention_days = 90
 }
 
 # ── EKS Cluster ──────────────────────────────────────────────────────────
@@ -124,6 +112,15 @@ resource "aws_s3_bucket" "results_sync" {
   }
 }
 
+# HIGH-01 FIX: block all public access — financial data must never be public.
+resource "aws_s3_bucket_public_access_block" "results_sync" {
+  bucket                  = aws_s3_bucket.results_sync.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
 resource "aws_s3_bucket_versioning" "results_sync" {
   bucket = aws_s3_bucket.results_sync.id
   versioning_configuration {
@@ -138,6 +135,38 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "results_sync" {
       sse_algorithm = "aws:kms"
     }
   }
+}
+
+# MEDIUM-05 FIX: lifecycle policy — results data retained 90 days then archived.
+# Prevents unbounded storage cost growth on a financial platform.
+resource "aws_s3_bucket_lifecycle_configuration" "results_sync" {
+  bucket = aws_s3_bucket.results_sync.id
+
+  rule {
+    id     = "results-retention"
+    status = "Enabled"
+    filter {}
+
+    transition {
+      days          = var.results_sync_standard_ia_days
+      storage_class = "STANDARD_IA"
+    }
+
+    transition {
+      days          = var.results_sync_glacier_days
+      storage_class = "GLACIER_IR"
+    }
+
+    expiration {
+      days = var.results_sync_expiration_days
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 30
+    }
+  }
+
+  depends_on = [aws_s3_bucket_versioning.results_sync]
 }
 
 # ── Outputs ───────────────────────────────────────────────────────────────

@@ -61,7 +61,9 @@ module "vpc" {
   azs             = var.availability_zones
   private_subnets = var.private_subnets
   public_subnets  = var.public_subnets
-  cluster_name    = var.cluster_name
+  cluster_name             = var.cluster_name
+  enable_flow_logs         = true
+  flow_logs_retention_days = 90
 }
 
 module "cluster" {
