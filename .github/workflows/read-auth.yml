@@ -1,0 +1,25 @@
+name: Read Auth Files
+
+on:
+  workflow_dispatch:
+
+jobs:
+  read-files:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read service.go
+        run: cat services/auth/jwt/service.go
+
+      - name: Read crypto_config.go
+        run: cat services/auth/jwt/crypto_config.go
+
+      - name: Find config files
+        run: |
+          echo "━━━━ go.mod ━━━━"
+          cat services/auth/go.mod
+          echo "━━━━ config files ━━━━"
+          find services/auth -name "config*.go" | sort | xargs -I{} sh -c 'echo "=== {} ==="; cat {}'
+          echo "━━━━ session/db refs ━━━━"
+          grep -r "active_sessions\|Session\|session" services/auth --include="*.go" -l
