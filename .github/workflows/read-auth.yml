@@ -9,9 +9,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Find auth structure
+      - name: Read service.go
+        run: cat services/auth/internal/jwt/service.go
+
+      - name: Read crypto_config.go
+        run: cat services/auth/internal/jwt/crypto_config.go
+
+      - name: Find config and session files
         run: |
-          echo "━━━━ auth directory structure ━━━━"
-          find . -path "*/auth*" -name "*.go" | sort
-          echo "━━━━ jwt files ━━━━"
-          find . -name "*.go" | xargs grep -l "jwt\|JWT" 2>/dev/null | sort
+          echo "━━━━ go.mod ━━━━"
+          cat services/auth/go.mod
+          echo "━━━━ config files ━━━━"
+          find services/auth -name "config*.go" | sort | xargs -I{} sh -c 'echo "=== {} ==="; cat {}'
+          echo "━━━━ session refs ━━━━"
+          grep -r "active_sessions\|SessionStore\|session" services/auth --include="*.go" -l
+          echo "━━━━ main.go ━━━━"
+          cat services/auth/cmd/server/main.go
+          
