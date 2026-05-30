@@ -30,7 +30,7 @@ opentelemetry_sdk     = { version = "0.24", features = ["rt-tokio"] }
 opentelemetry-otlp    = { version = "0.17", features = ["tonic"] }
 tracing-opentelemetry = "0.25"
 
-axum       = "0.7"
+axum       = "0.8"
 tower-http = { version = "0.5", features = ["trace"] }
 
 # Metrics — using metrics-rs (no protobuf dependency, no CVEs)
